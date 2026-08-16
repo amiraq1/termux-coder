@@ -22,6 +22,11 @@ class CliUI(AgentUI):
             logo.ctrl("recovered", "tool call extracted from text")
         elif kind == "map_ready":
             logo.ctrl("map", f"{payload.get('files')} files · {payload.get('symbols')} symbols")
+        elif kind == "model_route":
+            logo.ctrl(
+                f"route:{payload.get('tier')}",
+                f"{payload.get('model', '')} · {payload.get('reason', '')}",
+            )
         elif kind == "git_info":
             logo.ctrl(f"git:{payload.get('label')}", payload.get("detail", ""))
         elif kind == "lsp_on":

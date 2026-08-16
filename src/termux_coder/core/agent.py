@@ -12,6 +12,7 @@ from ..context import (
     PriorityEngine,
     TokenEstimator,
 )
+from ..providers.router import FAST_EXCLUDE
 from .recovery import recover_tool_calls
 from ..security.audit import AuditLog
 from ..security.jail import WorkspaceJail
@@ -33,9 +34,9 @@ class ToolContext:
 
 
 class Agent:
-    def __init__(self, settings, provider, registry: ToolRegistry, ui, store=None, resume_id=None) -> None:
+    def __init__(self, settings, router, registry: ToolRegistry, ui, store=None, resume_id=None) -> None:
         self.settings = settings
-        self.provider = provider
+        self.router = router
         self.registry = registry
         self.ui = ui
         self.jail = WorkspaceJail(settings.workspace)
@@ -113,6 +114,11 @@ class Agent:
         self.messages.insert(1, {"role": "system", "content": content})
 
     async def run_turn(self, user_text: str) -> None:
+        self.router.begin_turn()
+        intent_edit = self.router.looks_like_edit(user_text)
+        intent_run = self.router.looks_like_run(user_text)
+        escalated = False
+
         user_message = {"role": "user", "content": user_text}
         self.messages.append(user_message)
         self._persist(user_message)
@@ -144,11 +150,20 @@ class Agent:
                 # v0.6: إرسال stats للواجهة
                 await self.ui.on_event("context_stats", **stats)
 
+                tier, reason = self.router.tier_for_round(
+                    round_idx, user_text, self.messages
+                )
+                provider = self.router.provider_for(tier)
+                schemas = self.registry.schemas(
+                    exclude=None if tier == "smart" else FAST_EXCLUDE
+                )
+                await self.ui.on_event(
+                    "model_route", tier=tier, model=self.router.label_for(tier), reason=reason
+                )
+
                 with self.ui.thinking():
-                    assistant = await self.provider.chat_stream(
-                        assembled,  # استخدام assembled بدلاً من self.messages
-                        self.registry.schemas(),
-                        self.ui.on_token,
+                    assistant = await provider.chat_stream(
+                        assembled, schemas, self.ui.on_token
                     )
                 await self.ui.on_event("assistant_done")
 
@@ -162,11 +177,51 @@ class Agent:
                         tool_calls = recovered
                         await self.ui.on_event("tool_recovered", count=len(recovered))
 
+                # تصعيد مُسبَّب: نيّة تعديل/تنفيذ + fast بلا أدوات → جولة smart واحدة
+                if (
+                    not tool_calls
+                    and tier == "fast"
+                    and not escalated
+                    and self.router.forced != "fast"
+                    and (intent_edit or intent_run)
+                ):
+                    escalated = True
+                    if intent_edit:
+                        self.router.edit_mode = True
+                    await self.ui.on_event(
+                        "model_route",
+                        tier="smart",
+                        model=self.router.label_for("smart"),
+                        escalated=True,
+                        reason=(
+                            "edit_intent_without_tool"
+                            if intent_edit
+                            else "run_intent_without_tool"
+                        ),
+                    )
+                    with self.ui.thinking():
+                        assistant = await self.router.smart.chat_stream(
+                            assembled, self.registry.schemas(), self.ui.on_token
+                        )
+                    await self.ui.on_event("assistant_done")
+                    tool_calls = assistant.get("tool_calls")
+                    if not tool_calls:
+                        recovered = recover_tool_calls(
+                            assistant.get("content") or "", self.registry
+                        )
+                        if recovered:
+                            assistant["tool_calls"] = recovered
+                            tool_calls = recovered
+                            await self.ui.on_event("tool_recovered", count=len(recovered))
+
                 self.messages.append(assistant)
                 self._persist(assistant)
 
                 if not tool_calls:
                     return
+
+                for call in (tool_calls or []):
+                    self.router.note_edit(call["function"]["name"])
 
                 for call in tool_calls:
                     name = call["function"]["name"]

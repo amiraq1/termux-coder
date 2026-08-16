@@ -110,10 +110,25 @@ def build_registry() -> ToolRegistry:
 
 
 def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
-    provider = OpenAICompatProvider(
-        settings.openai_api_key, settings.openai_base_url, settings.model
+    import os
+    from .providers.router import ModelRouter
+
+    fast_model = os.environ.get("FAST_MODEL", "meta/llama-3.1-8b-instruct")
+    smart_model = settings.model
+    fast_provider = OpenAICompatProvider(
+        settings.openai_api_key, settings.openai_base_url, fast_model
     )
-    return Agent(settings, provider, build_registry(), ui, store=store, resume_id=resume_id)
+    smart_provider = OpenAICompatProvider(
+        settings.openai_api_key, settings.openai_base_url, smart_model
+    )
+    router = ModelRouter(
+        fast_provider,
+        smart_provider,
+        fast_model.split("/")[-1],
+        smart_model.split("/")[-1],
+        ui,
+    )
+    return Agent(settings, router, build_registry(), ui, store=store, resume_id=resume_id)
 
 
 async def cli_main(settings: Settings) -> None:
@@ -141,6 +156,12 @@ async def cli_main(settings: Settings) -> None:
             continue
         if text in {"/exit", "exit", "quit"}:
             break
+
+        if text in {"/fast", "/smart", "/auto"}:
+            val = text[1:] if text != "/auto" else None
+            agent.router.forced = val
+            logo.ctrl("router", f"forced to {val or 'auto'}")
+            continue
 
         if text == "/sessions":
             for s in store.list_recent():

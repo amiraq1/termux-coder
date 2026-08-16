@@ -25,8 +25,9 @@ class ToolRegistry:
             handler=handler,
         )
 
-    def schemas(self) -> list[dict]:
-        return [t.schema for t in self._tools.values()]
+    def schemas(self, exclude: set[str] | None = None) -> list[dict]:
+        exclude = exclude or set()
+        return [t.schema for name, t in self._tools.items() if name not in exclude]
 
     def handler(self, name: str) -> Handler | None:
         tool = self._tools.get(name)

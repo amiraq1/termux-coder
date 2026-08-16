@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.0
+- Multi-model routing: fast (8B) استكشاف قرائي فقط، smart (70B) تعديل/تنفيذ/التزام.
+- FAST_EXCLUDE يشمل run_command: الفصل "قراءة مقابل هندسة" حقيقي وليس شكليًا.
+- edit_mode لاصق داخل الـ turn فقط (begin_turn يعيدها False).
+- REPAIR_SIGNALS محددة (لا "error:" الفضفاضة) وتُفحص من آخر نتيجة أداة فقط.
+- كل قرار توجيه يُبث مع reason؛ التصعيد يُسجل كحدث
+  escalated · edit_intent_without_tool / run_intent_without_tool.
+- أوامر /fast /smart /auto للإجبار.
+
 ## v1.3.0
 - بث tokens حي داخل الـ TUI مع تحديث مخنق (150ms).
 - إنهاء صمت "Thought for Ns": أول token يظهر فور وصوله.

@@ -107,6 +107,21 @@ class TextualUI(AgentUI):
                 )
             )
 
+        elif kind == "model_route":
+            tier = payload.get("tier")
+            if tier == getattr(self, "_last_tier", None) and not payload.get("escalated"):
+                return
+            self._last_tier = tier
+            color = theme.TEAL if tier == "smart" else theme.LAVENDER
+            suffix = payload.get("reason", "auto")
+            if payload.get("escalated"):
+                suffix = "escalated · " + suffix
+            self._put(
+                Static(
+                    tool_line("ROUTE", tier, f"{payload.get('model')} · {suffix}", badge_color=color)
+                )
+            )
+
         elif kind == "map_ready":
             self._put(
                 Static(
@@ -369,6 +384,12 @@ class TermuxCoderApp(App):
                 for s in (self.store.list_recent() if self.store else [])
             ]
             feed.mount(Static(Text("\n".join(rows) or "no sessions", style=theme.DIM)))
+            return True
+
+        if text in {"/fast", "/smart", "/auto"}:
+            val = text[1:] if text != "/auto" else None
+            self.agent.router.forced = val
+            feed.mount(Static(Text(f"router forced to: {val or 'auto'}", style=theme.DIM)))
             return True
 
         if text == "/new" and self.store:
