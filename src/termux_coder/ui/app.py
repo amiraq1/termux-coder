@@ -32,6 +32,8 @@ class TextualUI(AgentUI):
         self.app = app
         self._buf: list[str] = []
         self._t0 = time.time()
+        self._stream_widget: Static | None = None
+        self._last_flush = 0.0
 
     def _put(self, widget) -> None:
         feed = self.app.query_one("#feed", ChatFeed)
@@ -58,6 +60,22 @@ class TextualUI(AgentUI):
         self._buf.append(text)
         self.app.add_tokens(max(1, len(text) // 4))
 
+        if self._stream_widget is None:
+            self._stream_widget = Static(Text("", style=theme.WHITE))
+            self._put(self._stream_widget)
+
+        now = time.monotonic()
+        if now - self._last_flush >= 0.15:
+            self._flush_stream()
+
+    def _flush_stream(self) -> None:
+        if self._stream_widget is not None:
+            self._stream_widget.update(
+                Text("∷ " + "".join(self._buf), style=theme.WHITE)
+            )
+            self.app.query_one("#feed", ChatFeed).scroll_end(animate=False)
+            self._last_flush = time.monotonic()
+
     async def on_event(self, kind: str, **payload) -> None:
         if kind == "turn_start":
             self._buf = []
@@ -66,11 +84,18 @@ class TextualUI(AgentUI):
 
         elif kind == "assistant_done":
             secs = int(time.time() - self._t0) or 1
+
+            if self._stream_widget is not None:
+                self._flush_stream()
+                self._stream_widget = None
+                self._buf = []
+            else:
+                text = "".join(self._buf).strip()
+                if text:
+                    self._put(Static(Text(f"∷ {text}", style=theme.WHITE)))
+                self._buf = []
+
             self._put(Static(Text(f"✳ Thought for {secs} second(s)", style=theme.DIM)))
-            text = "".join(self._buf).strip()
-            if text:
-                self._put(Static(Text(f"∷ {text}", style=theme.WHITE)))
-            self._buf = []
 
         elif kind in ("tool_recovered", "patch_recovered"):
             self._put(

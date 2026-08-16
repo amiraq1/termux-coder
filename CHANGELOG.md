@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0
+- بث tokens حي داخل الـ TUI مع تحديث مخنق (150ms).
+- إنهاء صمت "Thought for Ns": أول token يظهر فور وصوله.
+
 ## v1.2.0
 - Recovery Layer for non-native tool-calling models (استخراج الأداة من النص وصيغ patch البسيطة).
 
