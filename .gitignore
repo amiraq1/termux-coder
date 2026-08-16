@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# حالة الوكيل — لا تُرفع أبدًا
+.termux_coder/
+.agent_sessions/
+mcp_servers/node_modules/
+
+# أسرار
+env_nvidia.sh
+env_*.sh
+!env.example.sh
+*.key

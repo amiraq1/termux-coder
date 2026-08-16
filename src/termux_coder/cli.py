@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from . import logo
+from openai import AuthenticationError
 from .config import Settings
 from .core.agent import Agent
 from .core.registry import ToolRegistry
+from .core.session import SessionStore
 from .providers.openai_compat import OpenAICompatProvider
-from .tools import edit, fs, shell, todos, maptool, gittool
+from .tools import edit, fs, shell, todos, maptool, gittool, lsptool
 from .ui.cli import CliUI
 
 
@@ -97,14 +100,20 @@ def build_registry() -> ToolRegistry:
         {"type": "object", "properties": {"message": {"type": "string"}}, "required": ["message"]}, gittool.git_commit)
     reg.register("git_restore", "Discard changes to workspace-relative paths (approval, destructive).",
         {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}, "required": ["paths"]}, gittool.git_restore)
+    reg.register(
+        "lsp_diagnostics",
+        "Return current LSP diagnostics for a Python file.",
+        {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+        lsptool.lsp_diagnostics,
+    )
     return reg
 
 
-def build_agent(settings: Settings, ui) -> Agent:
+def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
     provider = OpenAICompatProvider(
         settings.openai_api_key, settings.openai_base_url, settings.model
     )
-    return Agent(settings, provider, build_registry(), ui)
+    return Agent(settings, provider, build_registry(), ui, store=store, resume_id=resume_id)
 
 
 async def cli_main(settings: Settings) -> None:
@@ -112,7 +121,9 @@ async def cli_main(settings: Settings) -> None:
     logo.ctrl("ready", f"{settings.workspace.resolve()}  security={settings.security_mode}")
 
     ui = CliUI()
-    agent = build_agent(settings, ui)
+    store = SessionStore(settings.state_dir / "sessions.db")
+    agent = build_agent(settings, ui, store=store)
+    logo.ctrl("session", f"{agent.session_id}{' · resumed' if agent.resumed else ' · new'}")
 
     while True:
         try:
@@ -126,7 +137,41 @@ async def cli_main(settings: Settings) -> None:
             continue
         if text in {"/exit", "exit", "quit"}:
             break
+
+        if text == "/sessions":
+            for s in store.list_recent():
+                when = time.strftime("%m-%d %H:%M", time.localtime(s["updated_at"]))
+                marker = " ◀" if s["id"] == agent.session_id else ""
+                print(f"{s['id']}  {when}  {s['title']}{marker}")
+            continue
+
+        if text == "/new":
+            agent = build_agent(settings, ui, store=store)
+            logo.ctrl("session", f"{agent.session_id} · new")
+            continue
+
+        if text == "/resume" or text.startswith("/resume "):
+            parts = text.split()
+            arg = parts[1] if len(parts) > 1 else None
+            recents = store.list_recent()
+            if arg:
+                pick = next((s for s in recents if s["id"].startswith(arg)), None)
+            else:
+                others = [s for s in recents if s["id"] != agent.session_id]
+                pick = others[0] if others else None
+            if not pick:
+                print("no session to resume")
+                continue
+            agent = build_agent(settings, ui, store=store, resume_id=pick["id"])
+            logo.ctrl("session", f"{agent.session_id} · resumed ({len(agent.messages) - 1} messages)")
+            continue
+
         try:
             await agent.run_turn(text)
+        except AuthenticationError:
+            print(logo.paint("خطأ مصادقة: مفتاح API غير صحيح أو غير مُحمّل.", logo.TEAL))
+            print("شغّل: source ~/termux-coder/env_nvidia.sh")
         except Exception as exc:
             print(f"error: {exc}")
+
+    await agent.close()

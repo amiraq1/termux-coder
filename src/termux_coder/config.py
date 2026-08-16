@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 def _env(name: str, default: str) -> str:
-    return os.environ.get(f"TERMUX_CODER_{name}", default)
+    """يدعم TERMUX_CODER_OPENAI_API_KEY و OPENAI_API_KEY معًا."""
+    return os.environ.get(f"TERMUX_CODER_{name}", os.environ.get(name, default))
 
 
 @dataclass
@@ -29,6 +30,9 @@ class Settings:
 
     repo_map_enabled: bool = field(default_factory=lambda: _env("REPO_MAP", "1") == "1")
     repo_map_budget: int = field(default_factory=lambda: int(_env("REPO_MAP_BUDGET", "6000")))
+
+    lsp_enabled: bool = field(default_factory=lambda: _env("LSP", "1") == "1")
+    lsp_wait: float = field(default_factory=lambda: float(_env("LSP_WAIT", "0.8")))
 
     @property
     def state_dir(self) -> Path:

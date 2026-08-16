@@ -3,8 +3,24 @@ from __future__ import annotations
 from openai import AsyncOpenAI
 
 
+def _clean_ascii(value: str) -> str:
+    """إزالة أي حروف غير ASCII (اقتباسات عربية، مسافات غريبة، placeholder)."""
+    return "".join(ch for ch in (value or "") if ch.isascii()).strip()
+
+
 class OpenAICompatProvider:
     def __init__(self, api_key: str, base_url: str, model: str):
+        api_key = _clean_ascii(api_key)
+        base_url = _clean_ascii(base_url)
+
+        if not api_key or api_key == "EMPTY":
+            raise RuntimeError(
+                "لا يوجد مفتاح API صالح. حرّر ~/termux-coder/env_nvidia.sh "
+                "باقتباسات إنجليزية مستقيمة ثم: source ~/.bashrc"
+            )
+        if not base_url:
+            raise RuntimeError("OPENAI_BASE_URL فارغ.")
+
         self.model = model
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 

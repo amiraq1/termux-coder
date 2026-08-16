@@ -8,13 +8,24 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="termux-coder")
+    parser.add_argument("command", nargs="?", choices=["run", "doctor"], default="run")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--cli", action="store_true", help="force CLI mode (default: TUI)")
+    parser.add_argument("--version", action="store_true")
     args = parser.parse_args()
 
     from .config import Settings
 
     settings = Settings(workspace=Path(args.workspace))
+
+    if args.version:
+        from . import __version__
+        print(f"termux-coder {__version__}")
+        return
+
+    if args.command == "doctor":
+        from .core.doctor import run_doctor
+        raise SystemExit(run_doctor(settings))
 
     if args.cli:
         from .cli import cli_main
@@ -24,11 +35,22 @@ def main() -> None:
 
     try:
         from .cli import build_agent
+        from .core.session import SessionStore
         from .ui.app import TermuxCoderApp
         from .ui.cli import CliUI
 
-        agent = build_agent(settings, CliUI())
-        TermuxCoderApp(agent).run()
+        store = SessionStore(settings.state_dir / "sessions.db")
+        
+        if settings.openai_api_key in ("", "EMPTY") and "openai.com" in settings.openai_base_url:
+            print("⚠️ لا يوجد مفتاح API مُحمّل — سيستخدم الإعدادات الافتراضية وسيفشل الاتصال.")
+            print("   الحل: source ~/termux-coder/env_nvidia.sh")
+            
+        key = settings.openai_api_key
+        masked = (key[:8] + "…") if len(key) > 8 and key.isascii() else f"<غير صالح: ascii={key.isascii()}>"
+        print(f"config: base_url={settings.openai_base_url} model={settings.model} key={masked}")
+
+        agent = build_agent(settings, CliUI(), store=store)
+        TermuxCoderApp(agent, settings, store).run()
     except Exception as exc:
         print(f"TUI unavailable ({exc}); falling back to CLI.", file=sys.stderr)
         from .cli import cli_main

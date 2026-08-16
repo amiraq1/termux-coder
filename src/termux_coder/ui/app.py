@@ -114,6 +114,43 @@ class TextualUI(AgentUI):
         elif kind == "git_diff_view":
             self._put_diff(payload["diff"])
 
+        elif kind == "lsp_on":
+            self._put(Static(tool_line("LSP", payload.get("server", ""), "connected")))
+        elif kind == "lsp_off":
+            self._put(Static(Text(f"lsp off · {payload.get('reason', '')}", style=theme.DIM)))
+        elif kind == "lsp_diag":
+            count = payload.get("count", 0)
+            color = theme.GREEN if count == 0 else theme.ORANGE
+            self._put(
+                Static(
+                    tool_line(
+                        "LSP",
+                        payload.get("path", ""),
+                        f"{count} problems · {payload.get('first', '')}",
+                        badge_color=color,
+                    )
+                )
+            )
+
+        elif kind == "context_stats":
+            total = payload.get("total_tokens", 0)
+            budget = payload.get("budget", 1)
+            pct = payload.get("usage_pct", 0)
+            bar_len = 20
+            filled = int(bar_len * pct / 100)
+            bar = "█" * filled + "░" * (bar_len - filled)
+
+            by_priority = payload.get("by_priority", {})
+            p0 = by_priority.get(0, 0) / 1000
+            p1 = by_priority.get(1, 0) / 1000
+            p2 = by_priority.get(2, 0) / 1000
+
+            text = (
+                f"Context {bar} {pct:.0f}% · {total/1000:.1f}k / {budget/1000:.1f}k\n"
+                f"P0: {p0:.1f}k  P1: {p1:.1f}k  P2: {p2:.1f}k"
+            )
+            self._put(Static(Text(text, style=theme.DIM)))
+
         elif kind == "shell_done":
             self._put(Static(tool_line("SHELL", payload["command"])))
             lines = payload["output"].splitlines()
@@ -172,9 +209,11 @@ class TermuxCoderApp(App):
     #modeline { height: 2; margin: 0 1; }
     """
 
-    def __init__(self, agent: Agent):
+    def __init__(self, agent: Agent, settings=None, store=None):
         super().__init__()
         self.agent = agent
+        self.settings = settings or agent.settings
+        self.store = store
         self._tokens = 0
         self._busy = False
         self._verb = 0
@@ -201,6 +240,15 @@ class TermuxCoderApp(App):
             style=theme.DIM,
         )
         feed.mount(Static(intro))
+        feed.mount(
+            Static(
+                tool_line(
+                    "SESSION",
+                    self.agent.session_id or "-",
+                    "resumed" if self.agent.resumed else "new",
+                )
+            )
+        )
         self._render_modeline()
         self._render_status()
         self.set_interval(1.6, self._tick)
@@ -261,6 +309,9 @@ class TermuxCoderApp(App):
         event.input.clear()
         if not text:
             return
+        if text.startswith("/"):
+            if self._handle_slash(text):
+                return
         feed = self.query_one("#feed", ChatFeed)
         line = Text()
         line.append("❯ ", style=f"bold {theme.TEAL}")
@@ -269,10 +320,67 @@ class TermuxCoderApp(App):
         feed.scroll_end(animate=False)
         self.run_agent(text)
 
+    def _handle_slash(self, text: str) -> bool:
+        import time as _time
+
+        from ..cli import build_agent
+
+        feed = self.query_one("#feed", ChatFeed)
+
+        if text == "/sessions":
+            rows = [
+                f"{s['id']}  {_time.strftime('%m-%d %H:%M', _time.localtime(s['updated_at']))}  {s['title']}"
+                + (" ◀" if s["id"] == self.agent.session_id else "")
+                for s in (self.store.list_recent() if self.store else [])
+            ]
+            feed.mount(Static(Text("\n".join(rows) or "no sessions", style=theme.DIM)))
+            return True
+
+        if text == "/new" and self.store:
+            self.agent = build_agent(self.settings, TextualUI(self), store=self.store)
+            feed.mount(Static(tool_line("SESSION", self.agent.session_id, "new")))
+            return True
+
+        if (text == "/resume" or text.startswith("/resume ")) and self.store:
+            arg = text.split()[1] if len(text.split()) > 1 else None
+            recents = self.store.list_recent()
+            if arg:
+                pick = next((s for s in recents if s["id"].startswith(arg)), None)
+            else:
+                others = [s for s in recents if s["id"] != self.agent.session_id]
+                pick = others[0] if others else None
+            if pick:
+                self.agent = build_agent(
+                    self.settings, TextualUI(self), store=self.store, resume_id=pick["id"]
+                )
+                feed.mount(
+                    Static(tool_line("SESSION", self.agent.session_id, "resumed"))
+                )
+            else:
+                feed.mount(Static(Text("no session to resume", style=theme.DIM)))
+            return True
+
+        return False
+
     @work(exclusive=True)
     async def run_agent(self, text: str) -> None:
         ui = TextualUI(self)
         self.agent.ui = ui
         self.agent.ctx.ui = ui
-        await self.agent.run_turn(text)
+        try:
+            await self.agent.run_turn(text)
+        except Exception as exc:
+            from openai import AuthenticationError
+
+            if isinstance(exc, AuthenticationError):
+                msg = (
+                    "AuthenticationError: مفتاح API غير صحيح أو غير مُحمّل.\n"
+                    "الحل: source ~/termux-coder/env_nvidia.sh\n"
+                    "أو أضف السطر إلى ~/.bashrc ليُحمّل تلقائيًا في كل جلسة."
+                )
+            else:
+                msg = f"error: {exc}"
+            feed = self.query_one("#feed", ChatFeed)
+            feed.mount(Static(Text(msg, style=theme.RED)))
+            feed.scroll_end(animate=False)
         self.query_one(DirectoryTree).reload()

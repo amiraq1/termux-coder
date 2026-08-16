@@ -22,6 +22,17 @@ class CliUI(AgentUI):
             logo.ctrl("map", f"{payload.get('files')} files · {payload.get('symbols')} symbols")
         elif kind == "git_info":
             logo.ctrl(f"git:{payload.get('label')}", payload.get("detail", ""))
+        elif kind == "lsp_on":
+            logo.ctrl("lsp", payload.get("server", ""))
+        elif kind == "lsp_off":
+            logo.ctrl("lsp off", payload.get("reason", ""))
+        elif kind == "lsp_diag":
+            logo.ctrl(f"lsp:{payload.get('path')}", f"{payload.get('count')} problems")
+        elif kind == "context_stats":
+            total = payload.get("total_tokens", 0)
+            budget = payload.get("budget", 1)
+            pct = payload.get("usage_pct", 0)
+            logo.ctrl("context", f"{pct:.0f}% · {total/1000:.1f}k / {budget/1000:.1f}k")
         elif kind == "tool_start":
             print()
             logo.ctrl(f"tool:{payload.get('name')}", str(payload.get("args"))[:120])

@@ -26,6 +26,8 @@ Hard rules:
 8. For multi-step missions, maintain a visible checklist with update_todos and mark items done as you progress.
 9. A repository map is injected automatically. Use it to locate symbols, then read_file only the files you actually need. Use repo_map(focus=...) for deeper exploration.
 10. Git discipline: before multi-step changes call git_checkpoint; after verified changes call git_commit with a concise message; verify with git_status/git_diff; never mutate git state via run_command.
+11. Python patches return LSP diagnostics when problems exist; fix all reported errors before ending the turn.
+12. Context is disposable; project state is authoritative. Never trust an old context snapshot over the current filesystem, Git state, or LSP diagnostics. When context is compacted, recover facts from tools when necessary.
 
 Patch format:
 <<<<<<< SEARCH

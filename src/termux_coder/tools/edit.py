@@ -58,4 +58,20 @@ async def apply_patch(args: dict, ctx) -> str:
     adds = sum(1 for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++"))
     rems = sum(1 for l in diff.splitlines() if l.startswith("-") and not l.startswith("---"))
     await ctx.ui.on_event("patch_applied", path=rel, diff=diff, additions=adds, removals=rems)
+
+    if rel.endswith(".py") and ctx.lsp is not None:
+        try:
+            await ctx.lsp.notify_change(path, new)
+            problems = await ctx.lsp.diagnostics(path)
+        except Exception:
+            problems = []
+        await ctx.ui.on_event(
+            "lsp_diag", path=rel, count=len(problems),
+            first=problems[0] if problems else "clean",
+        )
+        if problems:
+            return (
+                f"patch applied to {rel}\nLSP diagnostics:\n" + "\n".join(problems[:10])
+            )
+
     return f"patch applied to {rel}"
