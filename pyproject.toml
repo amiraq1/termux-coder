@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termux-coder"
+version = "0.1.0"
+description = "◈ agent — a safety-first coding agent for Termux"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.58",
+    "openai>=1.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+termux-coder = "termux_coder.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

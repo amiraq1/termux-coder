@@ -1,0 +1,2 @@
+[console_scripts]
+termux-coder = termux_coder.__main__:main

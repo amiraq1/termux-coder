@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: termux-coder
+Version: 0.1.0
+Summary: ◈ agent — a safety-first coding agent for Termux
+Requires-Python: >=3.10
+Requires-Dist: textual>=0.58
+Requires-Dist: openai>=1.40
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
