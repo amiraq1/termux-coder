@@ -12,6 +12,7 @@ from ..context import (
     PriorityEngine,
     TokenEstimator,
 )
+from .recovery import recover_tool_calls
 from ..security.audit import AuditLog
 from ..security.jail import WorkspaceJail
 from ..security.policy import CommandPolicy
@@ -150,10 +151,20 @@ class Agent:
                         self.ui.on_token,
                     )
                 await self.ui.on_event("assistant_done")
+
+                tool_calls = assistant.get("tool_calls")
+                if not tool_calls:
+                    recovered = recover_tool_calls(
+                        assistant.get("content") or "", self.registry
+                    )
+                    if recovered:
+                        assistant["tool_calls"] = recovered
+                        tool_calls = recovered
+                        await self.ui.on_event("tool_recovered", count=len(recovered))
+
                 self.messages.append(assistant)
                 self._persist(assistant)
 
-                tool_calls = assistant.get("tool_calls")
                 if not tool_calls:
                     return
 

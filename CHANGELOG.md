@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.2.0
+- Recovery Layer for non-native tool-calling models (استخراج الأداة من النص وصيغ patch البسيطة).
+
 ## v1.1.0
 - هندسة إصدار: wheel قابلة للتثبيت على أي جهاز Termux.
 - scripts/install_termux.sh للتثبيت بأمرة واحدة.

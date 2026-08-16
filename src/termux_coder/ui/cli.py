@@ -18,6 +18,8 @@ class CliUI(AgentUI):
             print()
         elif kind == "assistant_done":
             print()
+        elif kind in ("tool_recovered", "patch_recovered"):
+            logo.ctrl("recovered", "tool call extracted from text")
         elif kind == "map_ready":
             logo.ctrl("map", f"{payload.get('files')} files · {payload.get('symbols')} symbols")
         elif kind == "git_info":

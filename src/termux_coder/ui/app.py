@@ -72,6 +72,16 @@ class TextualUI(AgentUI):
                 self._put(Static(Text(f"∷ {text}", style=theme.WHITE)))
             self._buf = []
 
+        elif kind in ("tool_recovered", "patch_recovered"):
+            self._put(
+                Static(
+                    Text(
+                        "↻ recovered: النموذج طبع الأداة كنص — تم استخراجها وتنفيذها بأمان",
+                        style=theme.DIM,
+                    )
+                )
+            )
+
         elif kind == "map_ready":
             self._put(
                 Static(

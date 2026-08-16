@@ -25,6 +25,7 @@ src/termux_coder/core/__init__.py
 src/termux_coder/core/agent.py
 src/termux_coder/core/context.py
 src/termux_coder/core/doctor.py
+src/termux_coder/core/recovery.py
 src/termux_coder/core/registry.py
 src/termux_coder/core/session.py
 src/termux_coder/core/tool_registry.py
@@ -59,5 +60,6 @@ tests/test_jail.py
 tests/test_lsp.py
 tests/test_patch.py
 tests/test_policy.py
+tests/test_recovery.py
 tests/test_repomap.py
 tests/test_session.py

@@ -42,6 +42,29 @@ def parse_blocks(patch_text: str) -> list[tuple[str, str]]:
     return blocks
 
 
+def recover_simple_patch(patch_text: str, source: str):
+    """
+    استرداد patch بلا علامات SEARCH/REPLACE:
+    - فكّ هروب \\n الحرفية إذا لم توجد أسطر فعلية
+    - نتيجته سطران تمامًا، والأول موجود بشكل فريد في الملف
+      → (find, replace)
+    وإلا → None (نرفض بأمان بدل التخمين)
+    """
+    text = patch_text
+    if "\n" not in text and "\\n" in text:
+        text = text.replace("\\n", "\n")
+
+    lines = text.splitlines()
+    if len(lines) != 2:
+        return None
+
+    find, replace = lines[0], lines[1]
+    if not find or source.count(find) != 1:
+        return None
+    return find, replace
+
+
+
 def _norm(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 

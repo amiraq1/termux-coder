@@ -7,17 +7,12 @@ from . import patch as patchlib
 
 
 async def apply_patch(args: dict, ctx) -> str:
-    """
-    مسار التعديل الوحيد في v0.1:
-    read_file (إلزامي) → apply_patch → diff → approval → backup → write
-    """
     rel_input = args.get("path") or ""
     patch_text = args.get("patch") or ""
 
     try:
         path = ctx.jail.check(rel_input)
         rel = ctx.jail.rel(path)
-        blocks = patchlib.parse_blocks(patch_text)
     except Exception as exc:
         return f"patch error: {exc}"
 
@@ -26,12 +21,25 @@ async def apply_patch(args: dict, ctx) -> str:
             return f"refused: you must read_file({rel}) before patching it"
 
         old = path.read_text(encoding="utf-8", errors="replace")
+
+        try:
+            blocks = patchlib.parse_blocks(patch_text)
+        except patchlib.PatchError:
+            rec = patchlib.recover_simple_patch(patch_text, old)
+            if rec is None:
+                return "patch error: no SEARCH/REPLACE blocks; re-send with exact markers."
+            blocks = [rec]
+            await ctx.ui.on_event("patch_recovered", path=rel)
+
         try:
             new = patchlib.apply_blocks(old, blocks)
         except patchlib.PatchError as exc:
             return f"patch error: {exc}"
     else:
-        # إنشاء ملف جديد فقط بكتل SEARCH فارغة
+        try:
+            blocks = patchlib.parse_blocks(patch_text)
+        except patchlib.PatchError:
+            return "patch error: creating a file requires SEARCH/REPLACE markers with empty SEARCH."
         if any(find.strip() for find, _ in blocks):
             return "file does not exist; use an empty SEARCH block to create it"
         old = ""

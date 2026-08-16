@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: termux-coder
-Version: 1.1.1
+Version: 1.2.0
 Summary: ◈ agent — a safety-first coding agent for Termux
 Requires-Python: >=3.10
 License-File: LICENSE
