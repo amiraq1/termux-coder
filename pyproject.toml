@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "termux-coder"
-version = "1.1.0"
+version = "1.1.1"
 description = "◈ agent — a safety-first coding agent for Termux"
 requires-python = ">=3.10"
 dependencies = [

@@ -51,6 +51,8 @@ def main() -> None:
 
         agent = build_agent(settings, CliUI(), store=store)
         TermuxCoderApp(agent, settings, store).run()
+    except RuntimeError as exc:
+        sys.exit(exc)
     except Exception as exc:
         print(f"TUI unavailable ({exc}); falling back to CLI.", file=sys.stderr)
         from .cli import cli_main

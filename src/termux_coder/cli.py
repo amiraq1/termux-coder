@@ -122,7 +122,11 @@ async def cli_main(settings: Settings) -> None:
 
     ui = CliUI()
     store = SessionStore(settings.state_dir / "sessions.db")
-    agent = build_agent(settings, ui, store=store)
+    try:
+        agent = build_agent(settings, ui, store=store)
+    except RuntimeError as exc:
+        import sys
+        sys.exit(exc)
     logo.ctrl("session", f"{agent.session_id}{' · resumed' if agent.resumed else ' · new'}")
 
     while True:
