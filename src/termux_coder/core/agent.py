@@ -135,7 +135,7 @@ class Agent:
             self._refresh_map_message(map_text)
 
         try:
-            for _ in range(self.settings.max_tool_rounds):
+            for round_idx in range(self.settings.max_tool_rounds):
                 # v0.6: تحويل self.messages إلى ContextItems
                 current_seq = len(self.messages) - 1
                 items = [
