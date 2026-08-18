@@ -310,7 +310,7 @@ class TextualUI(AgentUI):
         else:
             title = "Run command?"
             body = payload.get("command", "")
-        return await self.app.push_screen(ApprovalScreen(title, body))
+        return await self.app.push_screen_wait(ApprovalScreen(title, body))
 
 
 class TermuxCoderApp(App):
