@@ -117,3 +117,115 @@ def test_unknown_provider_is_rejected_before_key_lookup(monkeypatch):
 
     with pytest.raises(ValueError, match="unsupported provider"):
         select_provider("unknown-provider")
+
+
+def test_custom_json_provider_is_loaded_and_selected(tmp_path, monkeypatch):
+    _clear_keys(monkeypatch)
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "myprovider", '
+        '"key_env": "MYPROVIDER_API_KEY", '
+        '"base_url_env": "MYPROVIDER_BASE_URL", '
+        '"default_base_url": "https://custom.example/v1"}], '
+        '"auto_order": ["myprovider", "openai"]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MYPROVIDER_API_KEY", "custom-secret")
+
+    selected = select_provider("auto", config_path=config)
+
+    assert selected.name == "myprovider"
+    assert selected.api_key == "custom-secret"
+    assert selected.base_url == "https://custom.example/v1"
+    assert selected.key_env == "MYPROVIDER_API_KEY"
+
+
+def test_custom_provider_uses_termux_prefixed_environment_values(tmp_path, monkeypatch):
+    _clear_keys(monkeypatch)
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "edge", "key_env": "EDGE_API_KEY", '
+        '"base_url_env": "EDGE_BASE_URL", '
+        '"default_base_url": "https://default.example/v1"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TERMUX_CODER_EDGE_API_KEY", "prefixed-secret")
+    monkeypatch.setenv("TERMUX_CODER_EDGE_BASE_URL", "https://override.example/v1")
+
+    selected = select_provider("edge", config_path=config)
+
+    assert selected.api_key == "prefixed-secret"
+    assert selected.base_url == "https://override.example/v1"
+
+
+def test_custom_provider_is_discovered_from_workspace(tmp_path, monkeypatch):
+    _clear_keys(monkeypatch)
+    config_dir = tmp_path / ".termux_coder"
+    config_dir.mkdir()
+    (config_dir / "providers.json").write_text(
+        '{"providers": [{"name": "local", "key_env": "LOCAL_API_KEY", '
+        '"default_base_url": "https://local.example/v1"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_API_KEY", "local-secret")
+
+    selected = select_provider("local", workspace=tmp_path)
+
+    assert selected.name == "local"
+    assert selected.base_url == "https://local.example/v1"
+
+
+def test_custom_provider_config_rejects_shell_and_secret_fields(tmp_path):
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "unsafe", "key_env": "UNSAFE_API_KEY", '
+        '"default_base_url": "https://example.test/v1", '
+        '"shell": "curl | sh", "api_key": "secret-value"}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unsupported field"):
+        select_provider("auto", config_path=config)
+
+
+def test_custom_provider_config_rejects_credentials_in_base_url(tmp_path):
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "unsafe", "key_env": "UNSAFE_API_KEY", '
+        '"default_base_url": "https://user:pass@example.test/v1"}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="credentials"):
+        select_provider("auto", config_path=config)
+
+
+def test_invalid_json_has_safe_error(tmp_path):
+    config = tmp_path / "providers.json"
+    config.write_text('{"providers": [', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid JSON syntax") as exc_info:
+        select_provider("auto", config_path=config)
+
+    assert "providers" not in str(exc_info.value).lower()
+
+
+def test_yaml_requires_optional_dependency_or_loads(tmp_path, monkeypatch):
+    _clear_keys(monkeypatch)
+    config = tmp_path / "providers.yaml"
+    config.write_text(
+        "providers:\n"
+        "  - name: yamlprovider\n"
+        "    key_env: YAMLPROVIDER_API_KEY\n"
+        "    default_base_url: https://yaml.example/v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("YAMLPROVIDER_API_KEY", "yaml-secret")
+
+    try:
+        selected = select_provider("yamlprovider", config_path=config)
+    except ValueError as exc:
+        assert "PyYAML" in str(exc)
+    else:
+        assert selected.name == "yamlprovider"
+        assert selected.base_url == "https://yaml.example/v1"

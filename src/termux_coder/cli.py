@@ -128,6 +128,8 @@ def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
         settings.provider,
         legacy_api_key=settings.openai_api_key,
         legacy_base_url=settings.openai_base_url,
+        config_path=settings.providers_config_path or None,
+        workspace=settings.workspace,
     )
     fast_provider = OpenAICompatProvider(
         selected.api_key, selected.base_url, fast_model

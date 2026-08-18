@@ -17,6 +17,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="termux-coder")
     parser.add_argument("command", nargs="?", choices=["run", "doctor"], default="run")
     parser.add_argument("--workspace", default=".")
+    parser.add_argument(
+        "--providers-config",
+        default=None,
+        help="path to a JSON/YAML custom providers configuration file",
+    )
     parser.add_argument("--tui", action="store_true", help="use the Textual UI instead of the default CLI")
     parser.add_argument("--cli", action="store_true", help=argparse.SUPPRESS)
     thinking_group = parser.add_mutually_exclusive_group()
@@ -42,6 +47,8 @@ def main() -> None:
     from .config import Settings
 
     settings = Settings(workspace=Path(args.workspace))
+    if args.providers_config is not None:
+        settings.providers_config_path = args.providers_config
     _apply_show_thinking_override(settings, args.show_thinking)
 
     if args.version:
@@ -74,13 +81,19 @@ def main() -> None:
 
         store = SessionStore(settings.state_dir / "sessions.db")
         
-        if settings.openai_api_key in ("", "EMPTY") and "openai.com" in settings.openai_base_url:
-            print("No API key loaded; the configured provider may reject requests.")
-            print("Load your environment file before starting the agent.")
+        from .providers.selection import select_provider
 
-        key = settings.openai_api_key
-        masked = (key[:8] + "…") if len(key) > 8 and key.isascii() else "<invalid>"
-        print(f"config: base_url={settings.openai_base_url} model={settings.model} key={masked}")
+        selected = select_provider(
+            settings.provider,
+            legacy_api_key=settings.openai_api_key,
+            legacy_base_url=settings.openai_base_url,
+            config_path=settings.providers_config_path or None,
+            workspace=settings.workspace,
+        )
+        print(
+            f"config: provider={selected.name} key_env={selected.key_env} "
+            f"model={settings.model}"
+        )
 
         agent = build_agent(settings, CliUI(), store=store)
         TermuxCoderApp(agent, settings, store).run()

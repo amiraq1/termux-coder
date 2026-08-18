@@ -37,6 +37,7 @@
 | GROQ_API_KEY / GROQ_BASE_URL | TERMUX_CODER_GROQ_API_KEY / TERMUX_CODER_GROQ_BASE_URL | Groq |
 | TOGETHER_API_KEY / TOGETHER_BASE_URL | TERMUX_CODER_TOGETHER_API_KEY / TERMUX_CODER_TOGETHER_BASE_URL | Together |
 | MODEL | TERMUX_CODER_MODEL | gpt-4o-mini |
+| PROVIDERS_CONFIG | TERMUX_CODER_PROVIDERS_CONFIG | optional JSON/YAML provider file |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
@@ -77,6 +78,50 @@ export NVIDIA_API_KEY='your-nvidia-key'
 ```
 
 للتوافق مع الإعداد القديم، يبقى `OPENAI_API_KEY` و`OPENAI_BASE_URL` مدعومين. أولوية المتغير المسبوق `TERMUX_CODER_` أعلى من المتغير العام. لا تُطبع قيم المفاتيح في CLI أو AuditLog؛ تظهر رسائل الأخطاء أسماء المتغيرات المطلوبة فقط.
+
+### المزودون المخصصون من ملف خارجي
+
+يمكن إضافة مزود OpenAI-compatible مخصص دون تعديل `PROVIDER_SPECS`. يكتشف الوكيل تلقائيًا الملفات التالية بالترتيب:
+
+```text
+{workspace}/.termux_coder/providers.json
+{workspace}/.termux_coder/providers.yaml
+{workspace}/.termux_coder/providers.yml
+~/.termux_coder/providers.json
+~/.termux_coder/providers.yaml
+~/.termux_coder/providers.yml
+```
+
+يمكن أيضًا تحديد ملف صريح من CLI أو البيئة:
+
+```sh
+python -m termux_coder run \\
+  --workspace ~/test-agent \\
+  --providers-config ~/.termux_coder/providers.json
+
+# أو
+export TERMUX_CODER_PROVIDERS_CONFIG="$HOME/.termux_coder/providers.json"
+```
+
+مثال `providers.json`:
+
+```json
+{
+  "providers": [
+    {
+      "name": "myprovider",
+      "key_env": "MYPROVIDER_API_KEY",
+      "base_url_env": "MYPROVIDER_BASE_URL",
+      "default_base_url": "https://api.example.com/v1"
+    }
+  ],
+  "auto_order": ["myprovider", "nvidia", "openai"]
+}
+```
+
+`key_env` و`base_url_env` هما اسما متغيري البيئة فقط؛ لا تضع قيمة المفتاح داخل الملف. يمكن حذف `base_url_env` عند الاكتفاء بـ`default_base_url`. إذا لم يوجد `auto_order` تُضاف المزودات المخصصة بعد ترتيب المزودات المدمجة. المتغيرات المسبوقة بـ`TERMUX_CODER_` لها أولوية أعلى، مثل `TERMUX_CODER_MYPROVIDER_API_KEY`.
+
+ملفات YAML اختيارية وتتطلب تثبيت `PyYAML`؛ JSON هو الخيار الموصى به في Termux لأنه لا يحتاج dependency إضافية. يرفض المحمل الحقول غير المعروفة، وحقول `shell` أو `headers` أو قيم المفاتيح، والروابط التي تحتوي credentials أو query أو fragment. هذا المسار لا يدعم إلا endpoints المتوافقة مع OpenAI API؛ البروتوكولات المختلفة تحتاج adapter مستقل.
 
 يُرسل `TERMUX_CODER_SINGLE_TOOL_CALLS=1` قيمة `parallel_tool_calls=false` لمزود OpenAI-compatible، وهو الوضع المناسب لنماذج Llama المحلية التي لا تقبل عدة tool calls في الاستجابة نفسها. يمكن ضبطه إلى `0` فقط مع مزود يدعم الاستدعاءات المتوازية.
 

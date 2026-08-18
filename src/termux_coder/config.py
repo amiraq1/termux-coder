@@ -28,6 +28,7 @@ class Settings:
     # auto selects the first configured provider; explicit names include
     # nvidia, openai, openrouter, groq, and together.
     provider: str = field(default_factory=lambda: _env("PROVIDER", "auto").lower())
+    providers_config_path: str = field(default_factory=lambda: _env("PROVIDERS_CONFIG", ""))
     model: str = field(default_factory=lambda: _env("MODEL", "gpt-4o-mini"))
 
     # ASK | READONLY | GRANULAR | AUTO (AUTO غير افتراضي ولا يُنصح به على الهاتف)
