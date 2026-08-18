@@ -122,13 +122,15 @@ class SessionStore:
 
     # ── حالة ──────────────────────────────────────────────
     def save_state(self, sid: str, state: SessionState) -> None:
+        # احتفظ بآخر 50 ترقيع فقط تفادياً لتراكم البيانات
+        patches_to_save = state.applied_patches[-50:] if state.applied_patches else []
         self.conn.execute(
             "INSERT OR REPLACE INTO state (session_id, read_files, applied_patches, todos) "
             "VALUES (?,?,?,?)",
             (
                 sid,
                 json.dumps(sorted(state.read_files)),
-                json.dumps(state.applied_patches),
+                json.dumps(patches_to_save),
                 json.dumps(state.todos),
             ),
         )
@@ -142,9 +144,18 @@ class SessionStore:
         r = cur.fetchone()
         if not r:
             return None
+        # Migrate: applied_patches may be list[str] (old) or list[dict] (new)
+        raw_patches = json.loads(r[1] or "[]")
+        migrated_patches: list[dict] = []
+        for p in raw_patches:
+            if isinstance(p, str):
+                # old format: just the path string
+                migrated_patches.append({"path": p, "backup": None, "old_hash": None, "new_hash": None, "ts": None})
+            elif isinstance(p, dict):
+                migrated_patches.append(p)
         return SessionState(
             read_files=set(json.loads(r[0] or "[]")),
-            applied_patches=json.loads(r[1] or "[]"),
+            applied_patches=migrated_patches,
             todos=json.loads(r[2] or "[]"),
         )
 

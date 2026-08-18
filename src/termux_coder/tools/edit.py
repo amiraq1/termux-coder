@@ -1,14 +1,105 @@
 from __future__ import annotations
 
-import shutil
-from datetime import datetime
+import hashlib
+import os
+import stat
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
 from . import patch as patchlib
 
+class ApplyPatchArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    patch: str
 
-async def apply_patch(args: dict, ctx) -> str:
-    rel_input = args.get("path") or ""
-    patch_text = args.get("patch") or ""
+class RollbackPatchArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+
+
+def _sha256(text: str) -> str:
+    """SHA-256 لمحتوى نصي مُرمَّز كـ UTF-8."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _atomic_write(path: Path, content: str, original_mode: int | None = None) -> None:
+    """
+    كتابة ذرية آمنة:
+    1. إنشاء ملف مؤقت في نفس المجلد (لضمان نفس نظام الملفات)
+    2. كتابة المحتوى مع flush + fsync
+    3. ضبط صلاحيات الملف الأصلي إذا كانت متاحة
+    4. os.replace: ذري داخل نفس نظام الملفات
+    5. مزامنة المجلد للحفاظ على الاتساق
+    """
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path_str = tempfile.mkstemp(dir=parent, prefix=".tc_tmp_")
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+
+        # الحفاظ على صلاحيات الملف الأصلي
+        if original_mode is not None:
+            try:
+                os.chmod(tmp_path, stat.S_IMODE(original_mode))
+            except OSError:
+                pass  # Termux قد لا يدعم بعض أوضاع الصلاحيات
+
+        # استبدال ذري
+        os.replace(tmp_path_str, str(path))
+
+        # مزامنة المجلد
+        try:
+            dir_fd = os.open(str(parent), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass  # بعض أنظمة الملفات لا تدعم fsync على المجلدات
+
+    except Exception:
+        # تنظيف الملف المؤقت في حالة الفشل
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _save_backup(path: Path, content: str, backup_dir: Path) -> Path:
+    """
+    حفظ نسخة احتياطية قبل أي تعديل.
+    يعيد مسار ملف النسخة الاحتياطية.
+    """
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    # استخدام hash أول 8 أحرف لتفادي تصادم الأسماء
+    content_hash = _sha256(content)[:8]
+    backup_name = f"{path.name}.{stamp}.{content_hash}.bak"
+    backup_path = backup_dir / backup_name
+    _atomic_write(backup_path, content)
+    return backup_path
+
+
+async def apply_patch(args: ApplyPatchArgs, ctx) -> str:
+    rel_input = args.path or ""
+
+    # تطبيع المسار - إزالة ./
+    if rel_input.startswith("./"):
+        rel_input = rel_input[2:]
+    patch_text = args.patch or ""
+
+    # فك هروب \n الحرفية (من Recovery Layer)
+    if "\\n" in patch_text and "\n" not in patch_text:
+        patch_text = patch_text.replace("\\n", "\n")
 
     try:
         path = ctx.jail.check(rel_input)
@@ -17,10 +108,27 @@ async def apply_patch(args: dict, ctx) -> str:
         return f"patch error: {exc}"
 
     if path.exists():
+        # ── ملف موجود: تحقق من القراءة المسبقة ────────────
         if rel not in ctx.state.read_files:
             return f"refused: you must read_file({rel}) before patching it"
 
+        # تحقق من أن الملف ليس مجلداً أو ثنائياً
+        if path.is_dir():
+            return f"patch error: {rel} is a directory"
+        if not path.is_file():
+            return f"patch error: {rel} is not a regular file"
+
         old = path.read_text(encoding="utf-8", errors="replace")
+
+        # ── hash للكشف عن التغيير المتزامن ─────────────────
+        expected_hash = ctx.state.read_hashes.get(rel)
+        current_hash = _sha256(old)
+        if expected_hash and expected_hash != current_hash:
+            return (
+                f"patch refused: {rel} was modified after you read it "
+                f"(expected {expected_hash[:8]}…, got {current_hash[:8]}…). "
+                f"Re-read the file before patching."
+            )
 
         try:
             blocks = patchlib.parse_blocks(patch_text)
@@ -52,17 +160,53 @@ async def apply_patch(args: dict, ctx) -> str:
     if not approved:
         return "user rejected the patch"
 
+    # ── حفظ نسخة احتياطية قبل الكتابة ──────────────────────
+    backup_path: Path | None = None
+    original_mode: int | None = None
+
     if path.exists():
-        ctx.settings.backup_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        shutil.copy2(path, ctx.settings.backup_dir / f"{path.name}.{stamp}.bak")
+        try:
+            original_mode = path.stat().st_mode
+            backup_path = _save_backup(path, old, ctx.settings.backup_dir)
+            ctx.audit.log(
+                "backup_created",
+                path=rel,
+                backup=str(backup_path),
+                hash=_sha256(old)[:16],
+            )
+        except Exception as exc:
+            return f"patch aborted: could not create backup: {exc}"
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(new, encoding="utf-8")
+    # ── كتابة ذرية ────────────────────────────────────────
+    try:
+        _atomic_write(path, new, original_mode=original_mode)
+    except Exception as exc:
+        # حاول الاسترداد إذا فشلت الكتابة وكان لدينا نسخة احتياطية
+        ctx.audit.log("patch_write_failed", path=rel, error=str(exc))
+        return f"patch error: write failed: {exc}"
 
+    # ── تحديث الحالة ────────────────────────────────────────
+    new_hash = _sha256(new)
     ctx.state.read_files.add(rel)
-    ctx.state.applied_patches.append(rel)
-    ctx.audit.log("patch_applied", path=rel)
+    ctx.state.read_hashes[rel] = new_hash  # تحديث الـ hash للنسخة الجديدة
+    ctx.state.applied_patches.append(
+        {
+            "path": rel,
+            "backup": str(backup_path) if backup_path else None,
+            "old_hash": _sha256(old) if old else None,
+            "new_hash": new_hash,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    ctx.audit.log(
+        "patch_applied",
+        path=rel,
+        old_hash=_sha256(old)[:16] if old else None,
+        new_hash=new_hash[:16],
+        backup=str(backup_path) if backup_path else None,
+    )
+
     adds = sum(1 for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++"))
     rems = sum(1 for l in diff.splitlines() if l.startswith("-") and not l.startswith("---"))
     await ctx.ui.on_event("patch_applied", path=rel, diff=diff, additions=adds, removals=rems)
@@ -83,3 +227,63 @@ async def apply_patch(args: dict, ctx) -> str:
             )
 
     return f"patch applied to {rel}"
+
+
+async def rollback_patch(args: RollbackPatchArgs, ctx) -> str:
+    """
+    أداة التراجع عن آخر ترقيع.
+    تستعيد الملف من النسخة الاحتياطية المحفوظة.
+    """
+    rel_input = args.path or ""
+    if rel_input.startswith("./"):
+        rel_input = rel_input[2:]
+
+    try:
+        path = ctx.jail.check(rel_input)
+        rel = ctx.jail.rel(path)
+    except Exception as exc:
+        return f"rollback error: {exc}"
+
+    # ابحث عن آخر ترقيع لهذا الملف
+    patch_record = None
+    for record in reversed(ctx.state.applied_patches):
+        if isinstance(record, dict) and record.get("path") == rel:
+            patch_record = record
+            break
+
+    if patch_record is None:
+        return f"rollback error: no patch record found for {rel}"
+
+    backup_str = patch_record.get("backup")
+    if not backup_str:
+        return f"rollback error: no backup available for {rel}"
+
+    backup_path = Path(backup_str)
+    if not backup_path.exists():
+        return f"rollback error: backup file missing: {backup_path}"
+
+    # تأكيد المستخدم
+    approved = await ctx.ui.request_approval(
+        "rollback",
+        {"path": rel, "backup": str(backup_path)},
+    )
+    if not approved:
+        return "user rejected rollback"
+
+    try:
+        old_content = backup_path.read_text(encoding="utf-8")
+        original_mode = path.stat().st_mode if path.exists() else None
+        _atomic_write(path, old_content, original_mode=original_mode)
+    except Exception as exc:
+        return f"rollback error: {exc}"
+
+    # تحديث الـ hash
+    ctx.state.read_hashes[rel] = _sha256(old_content)
+    ctx.audit.log(
+        "rollback_applied",
+        path=rel,
+        backup=str(backup_path),
+        hash=_sha256(old_content)[:16],
+    )
+
+    return f"rollback applied to {rel} from {backup_path.name}"

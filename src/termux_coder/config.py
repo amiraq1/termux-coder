@@ -23,7 +23,7 @@ class Settings:
     security_mode: str = field(default_factory=lambda: _env("SECURITY", "ASK"))
 
     command_timeout: int = field(default_factory=lambda: int(_env("COMMAND_TIMEOUT", "120")))
-    max_tool_rounds: int = 8
+    max_tool_rounds: int = 20
     max_file_chars: int = 30_000
     max_output_chars: int = 12_000
     state_dir_name: str = ".termux_coder"

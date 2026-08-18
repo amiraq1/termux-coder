@@ -5,6 +5,25 @@ import subprocess
 import time
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
+from typing import Optional, List
+
+class GitEmptyArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+class GitDiffArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    staged: Optional[bool] = False
+
+class GitCommitArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message: str
+
+class GitRestoreArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    paths: List[str]
+
+
 
 class GitError(Exception):
     pass
@@ -50,7 +69,7 @@ def _clean_message(message: str) -> str:
 
 
 # ── قراءة فقط ──────────────────────────────────────────────
-async def git_status(args: dict, ctx) -> str:
+async def git_status(args: GitEmptyArgs, ctx) -> str:
     if not await asyncio.to_thread(is_repo, ctx.jail.root):
         return _not_repo()
     out = await _git(ctx, ["status", "--porcelain=v1", "--branch"])
@@ -61,11 +80,11 @@ async def git_status(args: dict, ctx) -> str:
     return out or "clean working tree"
 
 
-async def git_diff(args: dict, ctx) -> str:
+async def git_diff(args: GitDiffArgs, ctx) -> str:
     if not await asyncio.to_thread(is_repo, ctx.jail.root):
         return _not_repo()
     cmd = ["diff", "--no-color"]
-    if args.get("staged"):
+    if args.staged:
         cmd.append("--staged")
     out = await _git(ctx, cmd)
     if out:
@@ -73,7 +92,7 @@ async def git_diff(args: dict, ctx) -> str:
     return out[: ctx.settings.max_output_chars] or "no diff"
 
 
-async def git_log(args: dict, ctx) -> str:
+async def git_log(args: GitEmptyArgs, ctx) -> str:
     if not await asyncio.to_thread(is_repo, ctx.jail.root):
         return _not_repo()
     out = await _git(ctx, ["log", "--oneline", "-n", "10"])
@@ -81,7 +100,7 @@ async def git_log(args: dict, ctx) -> str:
 
 
 # ── عمليات معدِّلة (موافقة إلزامية) ──────────────────────────
-async def git_init(args: dict, ctx) -> str:
+async def git_init(args: GitEmptyArgs, ctx) -> str:
     approved = await ctx.ui.request_approval(
         "git",
         {"title": "Initialize git repository?", "body": f"git init in {ctx.jail.root}"},
@@ -103,7 +122,7 @@ async def git_init(args: dict, ctx) -> str:
     return out.strip() or "initialized"
 
 
-async def git_checkpoint(args: dict, ctx) -> str:
+async def git_checkpoint(args: GitEmptyArgs, ctx) -> str:
     if not await asyncio.to_thread(is_repo, ctx.jail.root):
         return _not_repo()
 
@@ -126,11 +145,11 @@ async def git_checkpoint(args: dict, ctx) -> str:
     return f"checkpoint {h} created"
 
 
-async def git_commit(args: dict, ctx) -> str:
+async def git_commit(args: GitCommitArgs, ctx) -> str:
     if not await asyncio.to_thread(is_repo, ctx.jail.root):
         return _not_repo()
 
-    message = _clean_message(args.get("message", ""))
+    message = _clean_message(args.message or "")
     status = await _git(ctx, ["status", "--porcelain=v1"])
     if not status.strip():
         return "working tree clean; nothing to commit"
@@ -149,11 +168,11 @@ async def git_commit(args: dict, ctx) -> str:
     return f"committed {h}: {message}"
 
 
-async def git_restore(args: dict, ctx) -> str:
+async def git_restore(args: GitRestoreArgs, ctx) -> str:
     if not await asyncio.to_thread(is_repo, ctx.jail.root):
         return _not_repo()
 
-    paths = args.get("paths") or []
+    paths = args.paths or []
     if not paths:
         return "no paths given"
 

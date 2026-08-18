@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from pydantic import BaseModel, ConfigDict
 
-async def lsp_diagnostics(args: dict, ctx) -> str:
+class LspDiagnosticsArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+
+async def lsp_diagnostics(args: LspDiagnosticsArgs, ctx) -> str:
     if ctx.lsp is None:
         return "lsp disabled"
     try:
-        path = ctx.jail.check(args["path"])
+        path = ctx.jail.check(args.path)
     except Exception as exc:
         return f"lsp error: {exc}"
     if not path.exists():

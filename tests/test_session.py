@@ -47,13 +47,38 @@ def test_state_roundtrip(tmp_path):
 
     store = SessionStore(tmp_path / "s.db")
     sid = store.create("/w", "m")
-    st = SessionState(read_files={"a.py", "b.py"}, applied_patches=["a.py"],
-                      todos=[{"text": "x", "done": True}])
+    # applied_patches الآن list[dict] بدلاً من list[str]
+    st = SessionState(
+        read_files={"a.py", "b.py"},
+        applied_patches=[{"path": "a.py", "backup": None, "old_hash": None, "new_hash": None, "ts": None}],
+        todos=[{"text": "x", "done": True}],
+    )
     store.save_state(sid, st)
     back = store.load_state(sid)
     assert back.read_files == {"a.py", "b.py"}
-    assert back.applied_patches == ["a.py"]
+    assert len(back.applied_patches) == 1
+    assert back.applied_patches[0]["path"] == "a.py"
     assert back.todos[0]["done"] is True
+
+
+def test_state_roundtrip_migration_from_old_str_format(tmp_path):
+    """تحقق من الترحيل التلقائي من الصيغة القديمة list[str] إلى list[dict]."""
+    import json
+    from termux_coder.core.context import SessionState
+    from termux_coder.core.session import SessionStore
+
+    store = SessionStore(tmp_path / "s.db")
+    sid = store.create("/w", "m")
+    # اكتب مباشرة بالصيغة القديمة
+    store.conn.execute(
+        "INSERT OR REPLACE INTO state (session_id, read_files, applied_patches, todos) VALUES (?,?,?,?)",
+        (sid, json.dumps(["a.py"]), json.dumps(["a.py"]), json.dumps([])),
+    )
+    store.conn.commit()
+    back = store.load_state(sid)
+    assert len(back.applied_patches) == 1
+    assert back.applied_patches[0]["path"] == "a.py"  # مُرحَّل تلقائياً
+
 
 
 def test_recent_ordering(tmp_path):

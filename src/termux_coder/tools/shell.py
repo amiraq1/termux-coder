@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from pydantic import BaseModel, ConfigDict
+
+class RunCommandArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    command: str
 
 
-async def run_command(args: dict, ctx) -> str:
-    command = (args.get("command") or "").strip()
+
+async def run_command(args: RunCommandArgs, ctx) -> str:
+    command = (args.command or "").strip()
     if not command:
         return "empty command"
+        
+    # منع pytest إذا لم يكن هناك ملفات اختبار
+    if "pytest" in command and not any(f.endswith("_test.py") or f.endswith("test_*.py") for f in ctx.state.read_files):
+        ctx.audit.log("command_blocked", command=command, reason="no_test_files")
+        return "skipped: no test files found"
 
     if not ctx.policy.command_allowed_at_all():
         return "run_command disabled (security=READONLY)"

@@ -6,11 +6,28 @@ from dataclasses import dataclass, field
 @dataclass
 class SessionState:
     read_files: set[str] = field(default_factory=set)
-    applied_patches: list[str] = field(default_factory=list)
+    # hash لكل ملف وقت القراءة — للكشف عن التغيير المتزامن
+    read_hashes: dict[str, str] = field(default_factory=dict)
+    # سجل التعديلات: قائمة من dict بدلاً من list[str]
+    applied_patches: list[dict] = field(default_factory=list)
     todos: list = field(default_factory=list)
 
 
 def build_system_prompt(workspace: str, security_mode: str) -> str:
+    tools_text = """
+
+Tools (use JSON format):
+{"name": "read_file", "parameters": {"path": "demo.py"}}
+{"name": "apply_patch", "parameters": {"path": "demo.py", "patch": "<<<<<<< SEARCH\\nx = 1\\n=======\\nx = 99\\n>>>>>>> REPLACE"}}
+{"name": "rollback_patch", "parameters": {"path": "demo.py"}}
+
+Rules:
+- Use relative paths (demo.py, not /full/path)
+- Read ONLY the file you need to modify
+- Apply patch immediately after reading
+- Use rollback_patch to undo the last patch on a file if needed
+"""
+
     return f"""You are ◈ agent, a careful coding agent running inside Termux.
 Workspace: {workspace}
 Security mode: {security_mode}
@@ -28,8 +45,7 @@ Hard rules:
 10. Git discipline: before multi-step changes call git_checkpoint; after verified changes call git_commit with a concise message; verify with git_status/git_diff; never mutate git state via run_command.
 11. Python patches return LSP diagnostics when problems exist; fix all reported errors before ending the turn.
 12. Context is disposable; project state is authoritative. Never trust an old context snapshot over the current filesystem, Git state, or LSP diagnostics. When context is compacted, recover facts from tools when necessary.
-13. Never print tool JSON inside your reply text; always use the function-calling mechanism.
-14. If the user only greets or chats, answer briefly without using tools.
+13. Each patch is automatically backed up. Use rollback_patch to undo changes if needed.
 
 Patch format:
 <<<<<<< SEARCH
@@ -37,4 +53,5 @@ exact current lines
 =======
 new lines
 >>>>>>> REPLACE
+{tools_text}
 """

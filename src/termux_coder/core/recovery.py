@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+import os
+
+def normalize_path(path: str, workspace: str) -> str:
+    """تحويل المسار المطلق إلى نسبي"""
+    workspace = workspace.rstrip("/")
+    if path.startswith(workspace + "/"):
+        return path[len(workspace) + 1:]
+    return path
 
 
 def recover_tool_calls(content: str, registry) -> list[dict] | None:
@@ -40,6 +48,17 @@ def recover_tool_calls(content: str, registry) -> list[dict] | None:
                 params = None
 
         if name and isinstance(params, dict) and registry.handler(name):
+            # تطبيع المسارات
+            if "path" in params and isinstance(params["path"], str):
+                workspace = os.getcwd()
+                params["path"] = normalize_path(params["path"], workspace)
+            
+            # فك هروب \n في patch
+            if name == "apply_patch" and "patch" in params:
+                patch = params["patch"]
+                if "\\n" in patch:
+                    params["patch"] = patch.replace("\\n", "\n")
+                
             calls.append(
                 {
                     "id": f"recovered-{len(calls) + 1}",

@@ -16,7 +16,7 @@ from ..providers.router import FAST_EXCLUDE
 from .recovery import recover_tool_calls
 from ..security.audit import AuditLog
 from ..security.jail import WorkspaceJail
-from ..security.policy import CommandPolicy
+from ..security.policy import CommandPolicy, PolicyEngine
 from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
 
@@ -29,6 +29,7 @@ class ToolContext:
     ui: object
     audit: AuditLog
     policy: CommandPolicy
+    policy_engine: PolicyEngine
     repomap: object
     lsp: object
 
@@ -43,6 +44,7 @@ class Agent:
         self.state = SessionState()
         self.audit = AuditLog(settings.state_dir / "audit.jsonl")
         self.policy = CommandPolicy(settings.security_mode)
+        self.policy_engine = PolicyEngine(settings.security_mode)
         self.repomap = RepoMap(self.jail, settings.repo_map_budget)
         self._map_sent = False
         
@@ -89,7 +91,7 @@ class Agent:
                 self.session_id = store.create(str(self.jail.root), settings.model)
 
         self.ctx = ToolContext(
-            self.jail, settings, self.state, ui, self.audit, self.policy, self.repomap, self.lsp
+            self.jail, settings, self.state, ui, self.audit, self.policy, self.policy_engine, self.repomap, self.lsp
         )
 
     async def close(self) -> None:
@@ -231,15 +233,26 @@ class Agent:
                     if handler is None:
                         result = f"unknown tool: {name}"
                     else:
-                        try:
-                            args = json.loads(call["function"]["arguments"] or "{}")
-                        except Exception as exc:
-                            result = f"invalid arguments: {exc}"
+                        # فحص صلاحية الأداة من PolicyEngine، لا من مخرجات النموذج
+                        decision = self.policy_engine.evaluate_tool(name)
+                        if not decision.allowed:
+                            result = f"tool blocked by policy: {decision.reason}"
+                            self.audit.log(
+                                "tool_blocked",
+                                tool=name,
+                                reason=decision.reason,
+                                mode=self.policy_engine.mode,
+                            )
                         else:
                             try:
-                                result = await handler(args, self.ctx)
+                                args = json.loads(call["function"]["arguments"] or "{}")
                             except Exception as exc:
-                                result = f"tool error: {exc}"
+                                result = f"invalid arguments: {exc}"
+                            else:
+                                try:
+                                    result = await handler(args, self.ctx)
+                                except Exception as exc:
+                                    result = f"tool error: {exc}"
 
                     await self.ui.on_event("tool_result", name=name, text=result)
                     tool_msg = {"role": "tool", "tool_call_id": call["id"], "content": result}
