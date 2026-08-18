@@ -40,8 +40,19 @@ def test_cli_value_overrides_environment(monkeypatch) -> None:
     assert _apply_show_thinking_override(settings, None).show_thinking is False
 
 
-def test_cli_ui_shows_compact_tool_status_without_arguments_or_result_body() -> None:
+def test_cli_ui_quiet_mode_hides_progress_details() -> None:
     ui = CliUI()
+    output = StringIO()
+    with redirect_stdout(output):
+        asyncio.run(ui.on_event("model_route", tier="fast", reason="exploration"))
+        asyncio.run(ui.on_event("tool_start", name="read_file", args={"path": "/secret"}))
+        asyncio.run(ui.on_event("tool_result", name="read_file", text="sensitive result"))
+        asyncio.run(ui.on_event("verification_start"))
+    assert output.getvalue() == ""
+
+
+def test_cli_ui_shows_compact_tool_status_without_arguments_or_result_body() -> None:
+    ui = CliUI(show_thinking=True)
     output = StringIO()
     with redirect_stdout(output):
         asyncio.run(ui.on_event("tool_start", name="read_file", args={"path": "/secret"}))

@@ -34,7 +34,13 @@ class CliUI(AgentUI):
         if kind == "turn_start":
             self._token_buffer.clear()
             logo.ctrl("working")
-        elif kind in ("assistant_done", "turn_end"):
+            return
+        if kind in ("assistant_done", "turn_end"):
+            return
+        # In quiet mode, successful progress details stay hidden. Approval
+        # previews are still rendered by request_approval, independently of
+        # this event stream, so safety prompts are never suppressed.
+        if not self.show_thinking:
             return
         elif kind in ("tool_recovered", "patch_recovered"):
             logo.ctrl("recovered", "tool call normalized")
