@@ -13,7 +13,7 @@ from ..context import (
     TokenEstimator,
 )
 from ..providers.router import FAST_EXCLUDE
-from .recovery import recover_tool_calls
+from .recovery import recover_tool_calls, sanitize_tool_calls
 from ..security.audit import AuditLog
 from ..security.jail import WorkspaceJail
 from ..security.policy import CommandPolicy, PolicyEngine
@@ -154,6 +154,16 @@ class Agent:
             self.capability_registry,
         )
         self.orchestrator: AgentOrchestrator | None = None
+
+    def _sanitize_assistant_tool_calls(self, assistant: dict) -> list[dict] | None:
+        raw_calls = assistant.get("tool_calls")
+        if not raw_calls:
+            return None
+        sanitized, errors = sanitize_tool_calls(raw_calls)
+        assistant["tool_calls"] = sanitized
+        for error in errors:
+            self.audit.log("tool_args_parse_error", **error)
+        return sanitized
 
     def _clear_turn_research_context(self) -> None:
         """Drop research-only messages and active evidence between turns."""
@@ -302,7 +312,7 @@ class Agent:
                     )
                 await self.ui.on_event("assistant_done")
 
-                tool_calls = assistant.get("tool_calls")
+                tool_calls = self._sanitize_assistant_tool_calls(assistant)
                 if not tool_calls:
                     recovered = recover_tool_calls(
                         assistant.get("content") or "", self.registry
@@ -339,7 +349,7 @@ class Agent:
                             assembled, self.registry.schemas(), self.ui.on_token
                         )
                     await self.ui.on_event("assistant_done")
-                    tool_calls = assistant.get("tool_calls")
+                    tool_calls = self._sanitize_assistant_tool_calls(assistant)
                     if not tool_calls:
                         recovered = recover_tool_calls(
                             assistant.get("content") or "", self.registry

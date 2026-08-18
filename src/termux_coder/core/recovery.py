@@ -12,6 +12,30 @@ def normalize_path(path: str, workspace: str) -> str:
     return path
 
 
+def sanitize_tool_calls(raw_calls: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Canonicalize native tool-call arguments before they enter conversation history."""
+    sanitized: list[dict] = []
+    errors: list[dict] = []
+    for raw in raw_calls:
+        call = dict(raw) if isinstance(raw, dict) else {}
+        function = dict(call.get("function") or {})
+        name = str(function.get("name") or "")
+        call_id = call.get("id") or ""
+        raw_args = function.get("arguments") or "{}"
+        try:
+            parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+            if not isinstance(parsed, dict):
+                raise ValueError("tool arguments must be a JSON object")
+            function["arguments"] = json.dumps(parsed, ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            snippet = raw_args[:200] if isinstance(raw_args, str) else str(raw_args)[:200]
+            function["arguments"] = "{}"
+            errors.append({"call_id": call_id, "tool": name, "raw": snippet, "error": str(exc)})
+        call["function"] = function
+        sanitized.append(call)
+    return sanitized, errors
+
+
 def recover_tool_calls(content: str, registry) -> list[dict] | None:
     """
     بعض النماذج (NVIDIA NIM، نماذج محلية) لا تولّد tool_calls أصلية،

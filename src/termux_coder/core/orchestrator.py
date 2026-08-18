@@ -34,7 +34,7 @@ from ..models.contracts import (
 from ..security.audit import AuditLog
 from ..security.policy import Permission, PolicyEngine
 from .registry import ToolRegistry
-from .recovery import recover_tool_calls
+from .recovery import recover_tool_calls, sanitize_tool_calls
 from ..tools.preview import PatchPreviewService, PreviewError
 from .verification import VerificationRunner, VerificationStatus
 
@@ -1211,6 +1211,9 @@ class AgentOrchestrator:
         # المزودون الحاليون يعيدون dict مباشرة
         assistant_msg = dict(raw_response)
         raw_calls = assistant_msg.pop("tool_calls", None) or []
+        raw_calls, argument_errors = sanitize_tool_calls(raw_calls)
+        for error in argument_errors:
+            self.audit.log("tool_args_parse_error", **error)
 
         # توافق مع المزودات التي تطبع استدعاء الأداة كنص بدل native tool calls.
         if not raw_calls:
