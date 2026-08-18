@@ -48,6 +48,13 @@ def test_read_search_and_workspace_boundary(e2e_components):
         assert ".termux_coder" not in matches
         assert ".bak" not in matches
 
+        forensic = await fs.search_text(
+            fs.SearchTextArgs(query="greet", path=".", include_artifacts=True), ctx
+        )
+        assert "run.log" in forensic
+        assert ".termux_coder" in forensic
+        assert ".bak" in forensic
+
         with pytest.raises(JailViolation):
             await fs.read_file(fs.ReadFileArgs(path="/etc/passwd"), ctx)
 

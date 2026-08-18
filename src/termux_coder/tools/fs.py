@@ -21,6 +21,7 @@ class SearchTextArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str
     path: Optional[str] = None
+    include_artifacts: bool = False
 
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".termux_coder", ".cache"}
@@ -109,11 +110,14 @@ async def search_text(args: SearchTextArgs, ctx) -> str:
     cmd = [
         "grep", "-RIn",
         "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=.venv",
-        "--exclude-dir=.termux_coder", "--exclude-dir=.cache", "--exclude-dir=__pycache__",
-        "--exclude=*.log", "--exclude=*.bak", "--exclude=*.pyc",
-        "--exclude=audit.jsonl",
-        "--", query, str(root),
     ]
+    if not args.include_artifacts:
+        cmd.extend([
+            "--exclude-dir=.termux_coder", "--exclude-dir=.cache", "--exclude-dir=__pycache__",
+            "--exclude=*.log", "--exclude=*.bak", "--exclude=*.pyc",
+            "--exclude=audit.jsonl",
+        ])
+    cmd.extend(["--", query, str(root)])
     proc = await asyncio.to_thread(
         subprocess.run, cmd, capture_output=True, text=True, timeout=60
     )
