@@ -18,11 +18,11 @@ class OpenAICompatProvider:
 
         if not api_key or api_key == "EMPTY":
             raise RuntimeError(
-                "لا يوجد مفتاح API صالح. حرّر ~/termux-coder/env_nvidia.sh "
-                "باقتباسات إنجليزية مستقيمة ثم: source ~/.bashrc"
+                "No valid API key found. Configure the environment file "
+                "with straight quotes, then reload it before starting the agent."
             )
         if not base_url:
-            raise RuntimeError("OPENAI_BASE_URL فارغ.")
+            raise RuntimeError("OPENAI_BASE_URL is empty.")
 
         self.model = model
         self.single_tool_calls = os.environ.get(

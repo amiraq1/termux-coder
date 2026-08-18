@@ -37,12 +37,27 @@ class CliUI(AgentUI):
             return
         if kind in ("assistant_done", "turn_end"):
             return
-        # In quiet mode, successful progress details stay hidden. Approval
-        # previews are still rendered by request_approval, independently of
-        # this event stream, so safety prompts are never suppressed.
+        # In quiet mode, routine progress stays hidden, but safety and
+        # failure outcomes remain visible so a failed change never disappears.
         if not self.show_thinking:
+            if kind == "verification_result":
+                status = str(payload.get("status") or "unknown")
+                if status not in {"passed", "skipped", "ok"}:
+                    logo.ctrl("verify", status)
+            elif kind == "patch_plan_rollback":
+                errors = payload.get("errors") or []
+                logo.ctrl("rollback", "failed" if errors else "completed")
+            elif kind == "tool_denied":
+                reason = str(payload.get("reason") or "denied by policy")
+                logo.ctrl("denied", reason)
+            elif kind == "orchestrator_result":
+                state = str(payload.get("state") or "failed")
+                error = str(payload.get("error") or "")
+                logo.ctrl("error", error or state)
+            elif kind == "max_rounds":
+                logo.ctrl("stopped", "maximum tool rounds reached")
             return
-        elif kind in ("tool_recovered", "patch_recovered"):
+        if kind in ("tool_recovered", "patch_recovered"):
             logo.ctrl("recovered", "tool call normalized")
         elif kind == "map_ready":
             files = payload.get("files", 0)
@@ -64,10 +79,10 @@ class CliUI(AgentUI):
         elif kind == "lsp_diag":
             logo.ctrl(f"lsp:{payload.get('path') or 'file'}", f"{payload.get('count', 0)} problems")
         elif kind == "tool_start":
-            name = payload.get("name") or "operation"
+            name = payload.get("name") or payload.get("tool") or "operation"
             logo.ctrl("tool", str(name))
         elif kind == "tool_result":
-            name = payload.get("name") or "operation"
+            name = payload.get("name") or payload.get("tool") or "operation"
             logo.ctrl("tool done", str(name))
         elif kind == "verification_start":
             logo.ctrl("verify", "running")
@@ -78,6 +93,9 @@ class CliUI(AgentUI):
             if duration is not None:
                 detail += f" · {duration}ms"
             logo.ctrl("verify", detail)
+        elif kind == "patch_plan_rollback":
+            errors = payload.get("errors") or []
+            logo.ctrl("rollback", "failed" if errors else "completed")
         elif kind == "tool_denied":
             tool = payload.get("tool") or "operation"
             logo.ctrl("denied", f"{tool}: {payload.get('reason', '')}")

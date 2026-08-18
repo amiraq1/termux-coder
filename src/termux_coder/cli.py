@@ -158,15 +158,14 @@ def _latest_assistant_text(agent) -> str:
 
 async def cli_main(settings: Settings) -> None:
     logo.print_banner()
-    logo.ctrl("ready", f"{settings.workspace.resolve()}  security={settings.security_mode}")
 
     ui = CliUI(show_thinking=settings.show_thinking)
     store = SessionStore(settings.state_dir / "sessions.db")
     try:
         agent = build_agent(settings, ui, store=store)
     except RuntimeError as exc:
-        import sys
-        sys.exit(exc)
+        raise SystemExit(str(exc)) from exc
+    logo.ctrl("ready", f"{settings.workspace.resolve()}  security={settings.security_mode}")
     logo.ctrl("session", f"{agent.session_id}{' · resumed' if agent.resumed else ' · new'}")
 
     while True:

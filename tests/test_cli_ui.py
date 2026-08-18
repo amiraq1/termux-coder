@@ -7,6 +7,7 @@ from io import StringIO
 from termux_coder.cli import _friendly_reply
 from termux_coder.config import Settings
 from termux_coder.__main__ import _apply_show_thinking_override
+from termux_coder.providers.openai_compat import OpenAICompatProvider
 from termux_coder.ui.cli import CliUI
 
 
@@ -51,6 +52,19 @@ def test_cli_ui_quiet_mode_hides_progress_details() -> None:
     assert output.getvalue() == ""
 
 
+def test_cli_ui_quiet_mode_keeps_failures_and_rollback_visible() -> None:
+    ui = CliUI()
+    output = StringIO()
+    with redirect_stdout(output):
+        asyncio.run(ui.on_event("verification_result", status="failed", stderr="syntax error"))
+        asyncio.run(ui.on_event("patch_plan_rollback", plan_id="plan-1", errors=[]))
+        asyncio.run(ui.on_event("orchestrator_result", state="failed", error="verification failed"))
+    rendered = output.getvalue()
+    assert "verify failed" in rendered
+    assert "rollback completed" in rendered
+    assert "error verification failed" in rendered
+
+
 def test_cli_ui_shows_compact_tool_status_without_arguments_or_result_body() -> None:
     ui = CliUI(show_thinking=True)
     output = StringIO()
@@ -62,6 +76,17 @@ def test_cli_ui_shows_compact_tool_status_without_arguments_or_result_body() -> 
     assert "tool done read_file" in rendered
     assert "/secret" not in rendered
     assert "sensitive result" not in rendered
+
+
+def test_missing_api_key_message_is_english() -> None:
+    try:
+        OpenAICompatProvider("EMPTY", "https://example.test/v1", "test")
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected missing API key failure")
+    assert message.startswith("No valid API key found.")
+    assert all(ord(char) < 128 for char in message)
 
 
 def test_friendly_reply_handles_common_greetings_only() -> None:
