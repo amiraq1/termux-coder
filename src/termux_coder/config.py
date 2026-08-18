@@ -10,6 +10,11 @@ def _env(name: str, default: str) -> str:
     return os.environ.get(f"TERMUX_CODER_{name}", os.environ.get(name, default))
 
 
+def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    value = _env(name, ",".join(default))
+    return tuple(item.strip().lower().rstrip(".") for item in value.split(",") if item.strip())
+
+
 SUPPORTED_SECURITY_MODES = frozenset({"ASK", "READONLY", "GRANULAR", "AUTO"})
 
 
@@ -37,7 +42,28 @@ class Settings:
     capability_adapters_enabled: bool = field(
         default_factory=lambda: _env("CAPABILITY_ADAPTERS", "1") == "1"
     )
-    web_search_provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "duckduckgo"))
+    web_search_provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "duckduckgo").lower())
+    official_docs_domains: tuple[str, ...] = field(
+        default_factory=lambda: _csv_env(
+            "OFFICIAL_DOCS_DOMAINS",
+            (
+                "docs.python.org",
+                "python.org",
+                "pydantic.dev",
+                "fastapi.tiangolo.com",
+                "docs.pytest.org",
+                "numpy.org",
+                "pandas.pydata.org",
+                "nodejs.org",
+                "typescriptlang.org",
+                "react.dev",
+                "nextjs.org",
+                "docs.docker.com",
+                "kubernetes.io",
+                "docs.github.com",
+            ),
+        )
+    )
     web_search_timeout_s: float = field(default_factory=lambda: float(_env("SEARCH_TIMEOUT", "10")))
     web_search_max_response_bytes: int = field(
         default_factory=lambda: int(_env("SEARCH_MAX_RESPONSE_BYTES", "500000"))

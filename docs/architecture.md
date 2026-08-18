@@ -53,6 +53,7 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `ResearchCoordinator` | Ranks sources and converts search/page results into evidence packets | Does not grant write approval or execute mutations |
 | `CapabilityRegistry` | Registers explicitly configured external capabilities | No dynamic discovery; metadata does not grant permissions |
 | `WebSearchCapabilityAdapter` | Adapts a read-only search provider to the capability contract | Delegates search only; no shell or file access |
+| `OfficialDocsProvider` | Filters search output to an explicit official-domain allowlist | Rejects non-allowlisted hosts and remains read-only |
 
 ## Research Contracts
 
@@ -106,7 +107,7 @@ PatchPlan.plan_id + audit metadata
 
 ## Web Search Boundary
 
-`web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands. In `GRANULAR` mode, web search and page fetch are automatic because they are read-only network operations; they never grant permission to mutate files.
+`web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands. In `GRANULAR` mode, web search and page fetch are automatic because they are read-only network operations; they never grant permission to mutate files. When `SEARCH_PROVIDER=official_docs`, `OfficialDocsProvider` filters results by exact host or subdomain membership in `OFFICIAL_DOCS_DOMAINS`; it does not treat a lookalike host such as `docs.python.org.evil.test` as official.
 
 The current web knowledge path is:
 
@@ -115,6 +116,7 @@ web_search arguments
   → Network Policy
   → CapabilityRegistry
   → WebSearchCapabilityAdapter
+  → OfficialDocsProvider (optional allowlist filter)
   → DuckDuckGoProvider
   → bounded HTML response
   → WebSanitizer
@@ -168,7 +170,8 @@ The orchestrator must not transition to file execution merely because a search o
 | `TERMUX_CODER_WEB_SEARCH` | `1` | Enables the read-only web-search tool |
 | `TERMUX_CODER_RESEARCH_AUTO` | `1` | Automatically researches tasks that request current documentation |
 | `TERMUX_CODER_CAPABILITY_ADAPTERS` | `1` | Routes configured network capabilities through the explicit adapter registry; `0` keeps the legacy provider path |
-| `TERMUX_CODER_SEARCH_PROVIDER` | `duckduckgo` | Selects the provider implementation |
+| `TERMUX_CODER_SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo` for broad search or `official_docs` for allowlisted official documentation |
+| `TERMUX_CODER_OFFICIAL_DOCS_DOMAINS` | built-in list | Comma-separated official host allowlist; hostnames only, no schemes or paths |
 | `TERMUX_CODER_SEARCH_TIMEOUT` | `10` | Total network timeout in seconds |
 | `TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES` | `500000` | Maximum provider response size |
 | `TERMUX_CODER_SEARCH_MAX_RESULTS` | `5` | Maximum results returned to context |

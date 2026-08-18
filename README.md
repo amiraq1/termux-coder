@@ -32,7 +32,8 @@
 | TERMUX_CODER_WEB_SEARCH | — | 1 |
 | TERMUX_CODER_RESEARCH_AUTO | — | 1 |
 | TERMUX_CODER_CAPABILITY_ADAPTERS | — | 1 |
-| TERMUX_CODER_SEARCH_PROVIDER | — | duckduckgo |
+| TERMUX_CODER_SEARCH_PROVIDER | — | duckduckgo (`official_docs` متاح) |
+| TERMUX_CODER_OFFICIAL_DOCS_DOMAINS | — | allowlist للنطاقات الرسمية |
 | TERMUX_CODER_SEARCH_TIMEOUT | — | 10 seconds |
 | TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES | — | 500000 |
 | TERMUX_CODER_SEARCH_MAX_RESULTS | — | 5 |
@@ -79,9 +80,9 @@ termux-coder --workspace ~/my-project
 
 ## البحث عبر الإنترنت والمعرفة الموثقة
 
-يحتوي النظام على أداة `web_search` للبحث الشبكي للقراءة فقط، وتعمل عبر `Network Policy` ومزود Async قابل للتبديل. نتائج البحث تُعامل دائمًا كبيانات ويب غير موثوقة، ولا تمنح موافقة على تعديل الملفات أو تشغيل الأوامر.
+يحتوي النظام على أداة `web_search` للبحث الشبكي للقراءة فقط، وتعمل عبر `Network Policy` ومزود Async قابل للتبديل. نتائج البحث تُعامل دائمًا كبيانات ويب غير موثوقة، ولا تمنح موافقة على تعديل الملفات أو تشغيل الأوامر. يدعم `TERMUX_CODER_SEARCH_PROVIDER=official_docs` مزودًا مقيدًا يعيد فقط النتائج الواقعة ضمن allowlist للنطاقات الرسمية، ويستخدم DuckDuckGo كمحرك جمع أولي دون السماح بمرور الروابط الخارجية.
 
-توجد طبقة `Capability Adapter Layer` في `src/termux_coder/core/capabilities.py`. تسجل هذه الطبقة مزودي القدرات بشكل صريح، وتعرض وصفًا تدقيقيًا لكل قدرة، وتبقي `PolicyEngine` الجهة الوحيدة التي تقرر السماح والموافقة. لا يستطيع الـ adapter الكتابة أو تنفيذ shell commands؛ دوره هو تمرير بيانات البحث غير الموثوقة فقط. يعمل `DuckDuckGoProvider` عبر `WebSearchCapabilityAdapter` افتراضيًا، ويمكن الرجوع إلى المسار القديم عبر `TERMUX_CODER_CAPABILITY_ADAPTERS=0`.
+توجد طبقة `Capability Adapter Layer` في `src/termux_coder/core/capabilities.py`. تسجل هذه الطبقة مزودي القدرات بشكل صريح، وتعرض وصفًا تدقيقيًا لكل قدرة، وتبقي `PolicyEngine` الجهة الوحيدة التي تقرر السماح والموافقة. لا يستطيع الـ adapter الكتابة أو تنفيذ shell commands؛ دوره هو تمرير بيانات البحث غير الموثوقة فقط. يعمل `DuckDuckGoProvider` عبر `WebSearchCapabilityAdapter` افتراضيًا، ويمكن اختيار `OfficialDocsProvider` عبر `TERMUX_CODER_SEARCH_PROVIDER=official_docs`. يمكن الرجوع إلى المسار القديم عبر `TERMUX_CODER_CAPABILITY_ADAPTERS=0`.
 
 توجد عقود المعرفة في `src/termux_coder/models/research.py`:
 

@@ -27,6 +27,7 @@ from .research import ResearchCoordinator
 from ..tools.preview import PatchPreviewService
 from ..tools.duckduckgo import DuckDuckGoProvider
 from ..tools.fetch_page import FetchPageService
+from ..tools.official_docs import OfficialDocsProvider
 
 
 @dataclass
@@ -102,28 +103,33 @@ class Agent:
 
         self.capability_registry = CapabilityRegistry()
         self.research_coordinator = None
-        if (
-            getattr(settings, "web_search_enabled", True)
-            and getattr(settings, "research_auto_enabled", True)
-        ):
-            search_provider = DuckDuckGoProvider(
+        if getattr(settings, "web_search_enabled", True):
+            base_search_provider = DuckDuckGoProvider(
                 timeout_s=settings.web_search_timeout_s,
                 max_response_bytes=settings.web_search_max_response_bytes,
                 max_results=settings.web_search_max_results,
             )
+            if getattr(settings, "web_search_provider", "duckduckgo") == "official_docs":
+                search_provider = OfficialDocsProvider(
+                    base_search_provider,
+                    allowed_domains=getattr(settings, "official_docs_domains", ()),
+                )
+            else:
+                search_provider = base_search_provider
             research_provider = search_provider
             if getattr(settings, "capability_adapters_enabled", True):
                 search_adapter = WebSearchCapabilityAdapter(search_provider)
                 self.capability_registry.register(search_adapter)
                 research_provider = search_adapter
-            self.research_coordinator = ResearchCoordinator(
-                research_provider,
-                FetchPageService(
-                    timeout_s=settings.web_search_timeout_s,
-                    max_response_bytes=settings.web_search_max_response_bytes,
-                ),
-                max_sources=min(settings.web_search_max_results, 8),
-            )
+            if getattr(settings, "research_auto_enabled", True):
+                self.research_coordinator = ResearchCoordinator(
+                    research_provider,
+                    FetchPageService(
+                        timeout_s=settings.web_search_timeout_s,
+                        max_response_bytes=settings.web_search_max_response_bytes,
+                    ),
+                    max_sources=min(settings.web_search_max_results, 8),
+                )
         self.ctx = ToolContext(
             self.jail,
             settings,

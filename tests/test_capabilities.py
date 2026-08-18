@@ -116,3 +116,56 @@ def test_enabled_flag_selects_registered_adapter(monkeypatch):
     ctx = SimpleNamespace(settings=settings, capability_registry=registry)
 
     assert web_search._provider(ctx) is adapter
+
+
+
+def test_official_docs_provider_filters_to_allowlisted_domains():
+    from termux_coder.tools.official_docs import OfficialDocsProvider
+
+    class SearchProvider:
+        name = "fake-search"
+
+        async def search(self, args):
+            return WebSearchResult(
+                query=args.query,
+                provider=self.name,
+                results=[
+                    SearchResultItem(title="Python", url="https://docs.python.org/3/"),
+                    SearchResultItem(title="Subdomain", url="https://dev.docs.python.org/page"),
+                    SearchResultItem(title="Evil", url="https://docs.python.org.evil.test/"),
+                    SearchResultItem(title="Blog", url="https://example.com/blog"),
+                ],
+                total_found=4,
+            )
+
+    provider = OfficialDocsProvider(
+        SearchProvider(), allowed_domains=("docs.python.org",)
+    )
+    result = asyncio.run(provider.search(WebSearchArgs(query="python", max_results=5)))
+
+    assert result.provider == "official_docs"
+    assert [item.title for item in result.results] == ["Python", "Subdomain"]
+    assert all(item.source == "official_docs" for item in result.results)
+    assert result.total_found == 2
+
+
+def test_official_docs_provider_rejects_empty_allowlist():
+    from termux_coder.tools.official_docs import OfficialDocsProvider
+
+    try:
+        OfficialDocsProvider(FakeProvider(), allowed_domains=())
+    except ValueError as exc:
+        assert "at least one" in str(exc)
+    else:
+        raise AssertionError("empty official docs allowlist must fail closed")
+
+
+def test_official_docs_provider_rejects_invalid_domain_config():
+    from termux_coder.tools.official_docs import OfficialDocsProvider
+
+    try:
+        OfficialDocsProvider(FakeProvider(), allowed_domains=("https://docs.python.org",))
+    except ValueError as exc:
+        assert "invalid official documentation domain" in str(exc)
+    else:
+        raise AssertionError("domain config must not accept URL syntax")
