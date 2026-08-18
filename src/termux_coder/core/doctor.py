@@ -19,6 +19,7 @@ from ..tools.duckduckgo import DuckDuckGoProvider
 from ..tools.official_docs import OfficialDocsProvider
 from ..tools.resilient_provider import ResilientWebSearchProvider
 from .doctor_checks import CheckResult, CheckSpec, CheckStatus, DoctorCheckRegistry
+from .doctor_network import LiveNetworkProbe
 from .verification import VerificationRunner
 
 
@@ -74,9 +75,16 @@ class DoctorReport:
 class DoctorRunner:
     """Run bounded local diagnostics without mutating the workspace."""
 
-    def __init__(self, settings: Settings, *, version: str = "unknown") -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        version: str = "unknown",
+        network: bool = False,
+    ) -> None:
         self.settings = settings
         self.version = version
+        self.network = network
 
     def _python(self) -> tuple[CheckStatus, str, dict[str, object]]:
         version = sys.version_info
@@ -175,7 +183,7 @@ class DoctorRunner:
         except Exception as exc:
             return "error", "SQLite session storage check failed", {"error": str(exc)}
 
-    def _provider_health(self) -> tuple[CheckStatus, str, dict[str, object]]:
+    def _build_provider(self) -> ResilientWebSearchProvider:
         base = DuckDuckGoProvider(
             timeout_s=self.settings.web_search_timeout_s,
             max_response_bytes=self.settings.web_search_max_response_bytes,
@@ -184,7 +192,7 @@ class DoctorRunner:
         provider: object = base
         if self.settings.web_search_provider == "official_docs":
             provider = OfficialDocsProvider(base, allowed_domains=self.settings.official_docs_domains)
-        resilient = ResilientWebSearchProvider(
+        return ResilientWebSearchProvider(
             provider,
             max_retries=self.settings.web_search_max_retries,
             base_delay_s=self.settings.web_search_retry_base_delay_s,
@@ -193,6 +201,9 @@ class DoctorRunner:
             cache_ttl_s=self.settings.web_search_cache_ttl_s,
             max_cache_entries=self.settings.web_search_cache_entries,
         )
+
+    def _provider_health(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        resilient = self._build_provider()
         health = resilient.health()
         status: CheckStatus = "warning" if health.circuit_open else "ok"
         message = f"{self.settings.web_search_provider} provider is {health.as_dict()['status']}"
@@ -205,21 +216,36 @@ class DoctorRunner:
             },
         }
 
+    def _live_network_probe(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        provider = self._build_provider()
+        provider_timeout = float(self.settings.web_search_timeout_s)
+        probe_timeout = min(max(provider_timeout, 0.1), 25.0)
+        return LiveNetworkProbe(provider, timeout_s=probe_timeout).run()
+
     def registry(self) -> DoctorCheckRegistry:
-        return DoctorCheckRegistry(
-            (
-                CheckSpec("python", "environment", self._python),
-                CheckSpec("dependencies", "environment", self._dependencies),
-                CheckSpec("binaries", "environment", self._binaries),
-                CheckSpec("policy", "security", self._policy),
-                CheckSpec("workspace", "security", self._workspace),
-                CheckSpec("secret_scrubber", "security", self._scrubber),
-                CheckSpec("audit_log", "security", self._audit),
-                CheckSpec("verification_config", "verification", self._verification),
-                CheckSpec("session_storage", "data", self._sessions),
-                CheckSpec("provider_health", "network", self._provider_health),
+        specs = [
+            CheckSpec("python", "environment", self._python),
+            CheckSpec("dependencies", "environment", self._dependencies),
+            CheckSpec("binaries", "environment", self._binaries),
+            CheckSpec("policy", "security", self._policy),
+            CheckSpec("workspace", "security", self._workspace),
+            CheckSpec("secret_scrubber", "security", self._scrubber),
+            CheckSpec("audit_log", "security", self._audit),
+            CheckSpec("verification_config", "verification", self._verification),
+            CheckSpec("session_storage", "data", self._sessions),
+            CheckSpec("provider_health", "network", self._provider_health),
+        ]
+        if self.network:
+            provider_timeout = min(max(float(self.settings.web_search_timeout_s), 0.1), 25.0)
+            specs.append(
+                CheckSpec(
+                    "network_probe",
+                    "network",
+                    self._live_network_probe,
+                    timeout_s=min(provider_timeout + 2.0, 30.0),
+                )
             )
-        )
+        return DoctorCheckRegistry(tuple(specs))
 
     def run(self) -> DoctorReport:
         results = self.registry().run_all()
@@ -239,8 +265,7 @@ def run_doctor(
     network: bool = False,
 ) -> int:
     """Run local diagnostics; network is reserved for the explicit next phase."""
-    del network  # P4.4a deliberately performs no live network probes.
-    report = DoctorRunner(settings).run()
+    report = DoctorRunner(settings, network=network).run()
     print(report.to_json() if json_output else report.to_human_readable(verbose=verbose))
     return report.exit_code
 

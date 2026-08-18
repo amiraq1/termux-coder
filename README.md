@@ -120,6 +120,17 @@ python -m termux_coder doctor --workspace ~/my-project --verbose
 
 يعرض فحص `provider_health` الحالة الفعلية للـ`ResilientWebSearchProvider` دون اتصال شبكي. تظهر حالة `healthy` أو `degraded`، وعدد الإخفاقات المتتالية، وحالة circuit breaker، ووقت التهدئة المتبقي، وعدد عناصر cache، وإعدادات resilience غير الحساسة. يعرض Doctor أيضًا `network_probe.performed=false` بوضوح؛ فالـlive probe مؤجل إلى `--network` في المرحلة التالية.
 
+## P4.4d: Live Network Probe
+
+يُفعّل فحص الشبكة صراحةً فقط عبر:
+
+```sh
+python -m termux_coder doctor --workspace ~/my-project --network
+python -m termux_coder doctor --workspace ~/my-project --network --json
+```
+
+ينفذ `LiveNetworkProbe` طلب بحث واحدًا للقراءة فقط باستخدام المزود المهيأ، مع timeout محدود، retry/circuit policy الحالية، ونتيجة مختصرة لا تحتوي محتوى صفحات أو أسرارًا. لا يتم تشغيله في `doctor` العادي، ولا يمنح أي صلاحية كتابة أو تنفيذ. إذا فشل مزود واحد، تبقى بقية فحوص Doctor مستقلة.
+
 ## P4.3: Verification Threat Model
 
 تشغيل `pytest` أو أي فحص للمشروع ليس قراءة آمنة تلقائيًا؛ فالفحوص قد تحمل `conftest.py` أو plugins أو كود المشروع. لذلك يطلب `VerificationRunner` صيغة argv في `.termux-coder.toml`، يرفض shell strings و`python -c` وتشغيل ملفات Python مباشرة، يقيّد وحدات Python المسموحة، يفرض timeout صلبًا قدره 30 ثانية، يحد المخرجات، ويوقف process group عند التعليق. كما يوقف حلقة الإصلاح بعد ثلاث محاولات افتراضيًا ويستخدم rollback عند توفر PatchPlan.
