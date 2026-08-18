@@ -18,6 +18,13 @@ def test_model_picker_normalizes_custom_navigation_keys():
     assert picker.models == ("model-a", "model-b")
 
 
+def test_model_picker_uses_non_conflicting_default_navigation_keys():
+    picker = ModelPickerScreen("Provider", ("model-a", "model-b"), "model-a")
+
+    assert picker.next_key == "ctrl+down"
+    assert picker.prev_key == "ctrl+up"
+
+
 def test_model_picker_falls_back_to_current_model_when_catalog_is_empty():
     picker = ModelPickerScreen("Provider", (), "current-model")
 

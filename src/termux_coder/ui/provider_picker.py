@@ -23,6 +23,40 @@ class _ModelRow(ListItem):
         self.model_name = model
 
 
+class _ModelSearchInput(Input):
+    def __init__(self, owner: "ModelPickerScreen", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.owner.dismiss(None)
+        elif event.key == self.owner.next_key:
+            event.stop()
+            self.owner._move_model(1)
+        elif event.key == self.owner.prev_key:
+            event.stop()
+            self.owner._move_model(-1)
+
+
+class _ModelListView(ListView):
+    def __init__(self, owner: "ModelPickerScreen", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.owner.dismiss(None)
+        elif event.key == self.owner.next_key:
+            event.stop()
+            self.owner._move_model(1)
+        elif event.key == self.owner.prev_key:
+            event.stop()
+            self.owner._move_model(-1)
+
+
 class ProviderPickerScreen(ModalScreen):
     """Compact provider selector designed for small Termux screens."""
 
@@ -156,21 +190,21 @@ class ModelPickerScreen(ModalScreen):
         models: tuple[str, ...],
         current: str,
         *,
-        next_key: str = "ctrl+n",
-        prev_key: str = "ctrl+p",
+        next_key: str = "ctrl+down",
+        prev_key: str = "ctrl+up",
     ) -> None:
         super().__init__()
         self.provider_label = provider_label
         self.models = tuple(dict.fromkeys(models or (current,)))
         self.current = current
-        self.next_key = next_key.strip().lower() or "ctrl+n"
-        self.prev_key = prev_key.strip().lower() or "ctrl+p"
+        self.next_key = next_key.strip().lower() or "ctrl+down"
+        self.prev_key = prev_key.strip().lower() or "ctrl+up"
 
     def compose(self) -> ComposeResult:
         with Container(id="model-dialog"):
             yield Static(self.provider_label, id="model-title")
-            yield Input(placeholder="Search", id="model-search")
-            yield ListView(id="model-list")
+            yield _ModelSearchInput(self, placeholder="Search", id="model-search")
+            yield _ModelListView(self, id="model-list")
             yield Static(
                 f"Enter select   Esc back   {self.prev_key}/{self.next_key} move",
                 id="model-footer",
@@ -189,6 +223,22 @@ class ModelPickerScreen(ModalScreen):
             view.mount(_ModelRow(model))
         if not matches:
             view.mount(ListItem(Label("No models match your search"), disabled=True))
+        self.call_after_refresh(self._highlight_current)
+
+    def _highlight_current(self) -> None:
+        view = self.query_one("#model-list", ListView)
+        rows = [
+            (index, child)
+            for index, child in enumerate(view.children)
+            if isinstance(child, _ModelRow)
+        ]
+        if not rows:
+            return
+        for index, child in rows:
+            if child.model_name == self.current:
+                view.index = index
+                return
+        view.index = rows[0][0]
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "model-search":

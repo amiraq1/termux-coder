@@ -42,8 +42,8 @@
 | PROVIDERS_CONFIG | TERMUX_CODER_PROVIDERS_CONFIG | optional JSON/YAML provider file |
 | TUI_SHOW_ACTIVITY | TERMUX_CODER_TUI_SHOW_ACTIVITY | 1 |
 | TUI_SHOW_STATUS | TERMUX_CODER_TUI_SHOW_STATUS | 1 |
-| TUI_MODEL_NEXT_KEY | TERMUX_CODER_TUI_MODEL_NEXT_KEY | ctrl+n |
-| TUI_MODEL_PREV_KEY | TERMUX_CODER_TUI_MODEL_PREV_KEY | ctrl+p |
+| TUI_MODEL_NEXT_KEY | TERMUX_CODER_TUI_MODEL_NEXT_KEY | ctrl+down |
+| TUI_MODEL_PREV_KEY | TERMUX_CODER_TUI_MODEL_PREV_KEY | ctrl+up |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
@@ -197,7 +197,7 @@ export TERMUX_CODER_TUI_MODEL_PREV_KEY='alt+k'
 export TERMUX_CODER_TUI_MODEL_NEXT_KEY='alt+j'
 ```
 
-الاختصارات الافتراضية هي `Ctrl+P` للنموذج السابق و`Ctrl+N` للنموذج التالي. يعمل الاختصار المخصص داخل قائمة النماذج فقط، ولا يغير اختصارات CLI العامة مثل `Ctrl+A` لفتح قائمة المزودين أو `Ctrl+O` لتوسيع diff. يمكن استخدام الأسهم و`Enter` في جميع الحالات كمسار بديل.
+الاختصارات الافتراضية هي `Ctrl+Up` للنموذج السابق و`Ctrl+Down` للنموذج التالي. تم اختيارها لتجنب تعارض `Ctrl+P` مع اختصار التركيز العام في الواجهة الرئيسية. يعمل الاختصار المخصص داخل قائمة النماذج فقط، ولا يغير اختصارات CLI العامة مثل `Ctrl+A` لفتح قائمة المزودين أو `Ctrl+O` لتوسيع diff. يمكن استخدام الأسهم و`Enter` في جميع الحالات كمسار بديل.
 
 ## نموذج الأمان
 
