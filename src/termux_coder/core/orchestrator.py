@@ -34,6 +34,7 @@ from ..security.audit import AuditLog
 from ..security.policy import PolicyEngine
 from .registry import ToolRegistry
 from .recovery import recover_tool_calls
+from ..tools.preview import PatchPreviewService, PreviewError
 
 
 # ══════════════════════════════════════════════════════════════
@@ -123,6 +124,7 @@ class AgentOrchestrator:
         approval_handler: Callable[[str, dict], Coroutine] | None = None,
         message_sink: Callable[[dict], None] | None = None,
         message_preparer: Callable[[list[dict]], list[dict]] | None = None,
+        preview_service: PatchPreviewService | None = None,
     ):
         self.provider       = provider
         self.registry       = registry
@@ -135,6 +137,7 @@ class AgentOrchestrator:
         self._approval_handler = approval_handler
         self._message_sink = message_sink
         self._message_preparer = message_preparer
+        self._preview_service = preview_service
 
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
@@ -184,17 +187,47 @@ class AgentOrchestrator:
             # DENY نهائي — لا يتحول إلى REQUIRE_APPROVAL
             kind = DecisionKind.DENY
             deny_reason = decision_raw.reason
+            preview = None
+            preview_error = None
         elif decision_raw.requires_approval:
             kind = DecisionKind.REQUIRE_APPROVAL
             deny_reason = None
+            preview = None
+            preview_error = None
+            if call.name == "apply_patch" and self._preview_service is not None:
+                try:
+                    preview = self._preview_service.generate(
+                        str(call.arguments.get("path", "")),
+                        str(call.arguments.get("patch", "")),
+                    )
+                except PreviewError as exc:
+                    preview_error = str(exc)
+                    kind = DecisionKind.DENY
+                    deny_reason = preview_error
+                if preview is not None:
+                    self.audit.log(
+                        "patch_preview",
+                        turn_id=self._turn_id,
+                        call_id=call.call_id,
+                        path=preview.path,
+                        source_hash=preview.source_hash[:16],
+                        patch_hash=preview.patch_hash[:16],
+                        result_hash=preview.result_hash[:16],
+                        additions=preview.additions,
+                        removals=preview.removals,
+                    )
         else:
             kind = DecisionKind.ALLOW
             deny_reason = None
+            preview = None
+            preview_error = None
 
         return EvaluatedToolCall(
             call=call,
             decision=kind,
             deny_reason=deny_reason,
+            preview_error=preview_error,
+            preview=preview,
         )
 
     # ── منح الموافقة ─────────────────────────────────────────
@@ -231,10 +264,13 @@ class AgentOrchestrator:
             arguments_fingerprint=ecall.call.arguments_fingerprint,
             approved_by=approved_by,
             expires_at=expires_at,
+            preview_source_hash=ecall.preview.source_hash if ecall.preview else None,
+            preview_patch_hash=ecall.preview.patch_hash if ecall.preview else None,
+            preview_result_hash=ecall.preview.result_hash if ecall.preview else None,
         )
 
         # تحقق نهائي من الصلاحية
-        valid, reason = grant.is_valid_for(ecall.call)
+        valid, reason = grant.is_valid_for(ecall.call, ecall.preview)
         if not valid:
             return False, reason
 
@@ -242,6 +278,8 @@ class AgentOrchestrator:
         self._pending_approvals[call_id] = EvaluatedToolCall(
             call=ecall.call,
             decision=ecall.decision,
+            preview_error=ecall.preview_error,
+            preview=ecall.preview,
             approval_grant=grant,
         )
 
@@ -350,7 +388,7 @@ class AgentOrchestrator:
                     code=ErrorCode.APPROVAL_REQUIRED,
                     message="approval required but not granted",
                 )
-            valid, reason = ecall.approval_grant.is_valid_for(call)
+            valid, reason = ecall.approval_grant.is_valid_for(call, ecall.preview)
             if not valid:
                 return ToolResult.failure(
                     tool=call.name, call_id=call.call_id,
@@ -371,7 +409,9 @@ class AgentOrchestrator:
         # تنفيذ الأداة. يمنع هذا العلم طلب موافقة ثانية داخل الأداة
         # بعد أن تحقق Orchestrator من الموافقة الخارجية.
         previous_approval = getattr(self.ctx, "orchestrator_approval_granted", False)
+        previous_preview = getattr(self.ctx, "orchestrator_preview", None)
         setattr(self.ctx, "orchestrator_approval_granted", ecall.is_ready_to_execute)
+        setattr(self.ctx, "orchestrator_preview", ecall.preview)
         try:
             raw = await handler(dict(call.arguments), self.ctx)
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -398,6 +438,7 @@ class AgentOrchestrator:
             )
         finally:
             setattr(self.ctx, "orchestrator_approval_granted", previous_approval)
+            setattr(self.ctx, "orchestrator_preview", previous_preview)
 
         self.audit.log(
             "tool_result",
@@ -528,7 +569,7 @@ class AgentOrchestrator:
                     deny_result = ToolResult.failure(
                         tool=ecall.call.name,
                         call_id=ecall.call.call_id,
-                        code=ErrorCode.POLICY_DENY,
+                        code=(ErrorCode.PREVIEW_FAILED if ecall.preview_error else ErrorCode.POLICY_DENY),
                         message=ecall.deny_reason or "denied",
                     )
                     self._append_message(messages, {
@@ -676,8 +717,17 @@ class AgentOrchestrator:
     def _approval_payload(ecall: EvaluatedToolCall) -> dict:
         call = ecall.call
         args = call.arguments
-        if call.name in {"apply_patch", "rollback_patch"}:
+        if call.name == "apply_patch":
+            if ecall.preview is not None:
+                return {
+                    "path": ecall.preview.path,
+                    "diff": ecall.preview.diff,
+                    "additions": ecall.preview.additions,
+                    "removals": ecall.preview.removals,
+                }
             return {"path": args.get("path", ""), "diff": args.get("patch", "")}
+        if call.name == "rollback_patch":
+            return {"path": args.get("path", ""), "diff": "rollback requested"}
         if call.name.startswith("git_"):
             return {"title": f"Approve {call.name}?", "body": json.dumps(args, ensure_ascii=False)}
         return {"command": args.get("command", json.dumps(args, ensure_ascii=False))}

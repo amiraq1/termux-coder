@@ -21,6 +21,7 @@ from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
 from .orchestrator import AgentOrchestrator, TurnState
 from .orchestrator_adapter import RouterProviderAdapter
+from ..tools.preview import PatchPreviewService
 
 
 @dataclass
@@ -134,6 +135,7 @@ class Agent:
             approval_handler=self.ui.request_approval,
             message_sink=self._persist,
             message_preparer=prepare_messages,
+            preview_service=PatchPreviewService(self.jail, self.state),
         )
         result = await self.orchestrator.run_turn(
             self.messages,

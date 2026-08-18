@@ -18,6 +18,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..tools.preview import PatchPreview
+
 
 # ══════════════════════════════════════════════════════════════
 # 1. كودات الخطأ
@@ -38,6 +40,7 @@ class ErrorCode(str, Enum):
     BINARY_FILE         = "binary_file"
     TOCTOU_CONFLICT     = "toctou_conflict"
     BACKUP_FAILED       = "backup_failed"
+    PREVIEW_FAILED      = "preview_failed"
     MAX_ROUNDS          = "max_rounds"
 
 
@@ -226,8 +229,13 @@ class ApprovalGrant(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     expires_at:            str | None = None  # ISO 8601 UTC
+    preview_source_hash:   str | None = None
+    preview_patch_hash:    str | None = None
+    preview_result_hash:   str | None = None
 
-    def is_valid_for(self, call: ToolCall) -> tuple[bool, str]:
+    def is_valid_for(
+        self, call: ToolCall, preview: PatchPreview | None = None
+    ) -> tuple[bool, str]:
         """
         تحقق من أن الموافقة صالحة للاستدعاء `call`.
         يُعيد (True, "") أو (False, سبب_الرفض).
@@ -242,6 +250,15 @@ class ApprovalGrant(BaseModel):
             now = datetime.now(timezone.utc).isoformat()
             if now > self.expires_at:
                 return False, f"approval expired at {self.expires_at}"
+        if preview is not None:
+            checks = (
+                (self.preview_source_hash, preview.source_hash, "source hash"),
+                (self.preview_patch_hash, preview.patch_hash, "patch hash"),
+                (self.preview_result_hash, preview.result_hash, "result hash"),
+            )
+            for approved, current, label in checks:
+                if approved is not None and approved != current:
+                    return False, f"{label} changed after approval"
         return True, ""
 
 
@@ -265,6 +282,8 @@ class EvaluatedToolCall(BaseModel):
     call:           ToolCall
     decision:       DecisionKind
     deny_reason:    str | None = None
+    preview_error:  str | None = None
+    preview:        PatchPreview | None = None
     approval_grant: ApprovalGrant | None = None
 
     @property
@@ -273,6 +292,6 @@ class EvaluatedToolCall(BaseModel):
         if self.decision == DecisionKind.ALLOW:
             return True
         if self.decision == DecisionKind.REQUIRE_APPROVAL and self.approval_grant:
-            valid, _ = self.approval_grant.is_valid_for(self.call)
+            valid, _ = self.approval_grant.is_valid_for(self.call, self.preview)
             return valid
         return False

@@ -153,6 +153,18 @@ async def apply_patch(args: ApplyPatchArgs, ctx) -> str:
         old = ""
         new = "\n".join(replace for _, replace in blocks)
 
+    # إذا تمت الموافقة عبر Orchestrator، يجب أن تطابق النتيجة المعاينة حرفيًا.
+    preview = getattr(ctx, "orchestrator_preview", None)
+    if preview is not None:
+        if preview.path != rel:
+            return "patch refused: preview path mismatch"
+        if preview.source_hash != _sha256(old):
+            return "patch refused: source changed after preview"
+        if preview.patch_hash != _sha256(patch_text):
+            return "patch refused: patch changed after preview"
+        if preview.result_hash != _sha256(new):
+            return "patch refused: result changed after preview"
+
     diff = patchlib.make_diff(rel, old, new)
 
     if getattr(ctx, "orchestrator_approval_granted", False):
