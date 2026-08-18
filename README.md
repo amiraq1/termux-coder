@@ -40,6 +40,10 @@
 | GEMINI_API_KEY / GEMINI_BASE_URL | TERMUX_CODER_GEMINI_API_KEY / TERMUX_CODER_GEMINI_BASE_URL | Google Gemini API |
 | MODEL | TERMUX_CODER_MODEL | gpt-4o-mini |
 | PROVIDERS_CONFIG | TERMUX_CODER_PROVIDERS_CONFIG | optional JSON/YAML provider file |
+| TUI_SHOW_ACTIVITY | TERMUX_CODER_TUI_SHOW_ACTIVITY | 1 |
+| TUI_SHOW_STATUS | TERMUX_CODER_TUI_SHOW_STATUS | 1 |
+| TUI_MODEL_NEXT_KEY | TERMUX_CODER_TUI_MODEL_NEXT_KEY | ctrl+n |
+| TUI_MODEL_PREV_KEY | TERMUX_CODER_TUI_MODEL_PREV_KEY | ctrl+p |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
@@ -180,6 +184,20 @@ Anthropic يستخدم Messages API مع `x-api-key` و`anthropic-version`، ب�
     ctrl+a      فتح قائمة اختيار المزود والنموذج في TUI
 
 عند تشغيل TUI، افتح القائمة عبر `Ctrl+A`. اكتب في `Search` لتصفية المزودين، استخدم الأسهم للتنقل و`Enter` للاختيار و`Esc` للإغلاق. تظهر علامة `✓` بجانب المزود الذي يملك مفتاحًا مهيأً. بعد اختيار المزود تظهر قائمة النماذج المعرفة في حقل `models` داخل ملف الإعدادات؛ إذا لم توجد، يعرض الوكيل النموذج الحالي فقط.
+
+يمكن تخصيص تفاصيل العرض واختصارات التنقل من البيئة:
+
+```sh
+# إخفاء شريط النشاط أو شريط الحالة في TUI
+export TERMUX_CODER_TUI_SHOW_ACTIVITY=0
+export TERMUX_CODER_TUI_SHOW_STATUS=0
+
+# التنقل بين النماذج داخل ModelPicker
+export TERMUX_CODER_TUI_MODEL_PREV_KEY='alt+k'
+export TERMUX_CODER_TUI_MODEL_NEXT_KEY='alt+j'
+```
+
+الاختصارات الافتراضية هي `Ctrl+P` للنموذج السابق و`Ctrl+N` للنموذج التالي. يعمل الاختصار المخصص داخل قائمة النماذج فقط، ولا يغير اختصارات CLI العامة مثل `Ctrl+A` لفتح قائمة المزودين أو `Ctrl+O` لتوسيع diff. يمكن استخدام الأسهم و`Enter` في جميع الحالات كمسار بديل.
 
 ## نموذج الأمان
 

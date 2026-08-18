@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.screen import ModalScreen
@@ -149,18 +150,31 @@ class ModelPickerScreen(ModalScreen):
     #model-footer {{ height: 1; color: {theme.DIM}; }}
     """
 
-    def __init__(self, provider_label: str, models: tuple[str, ...], current: str) -> None:
+    def __init__(
+        self,
+        provider_label: str,
+        models: tuple[str, ...],
+        current: str,
+        *,
+        next_key: str = "ctrl+n",
+        prev_key: str = "ctrl+p",
+    ) -> None:
         super().__init__()
         self.provider_label = provider_label
         self.models = tuple(dict.fromkeys(models or (current,)))
         self.current = current
+        self.next_key = next_key.strip().lower() or "ctrl+n"
+        self.prev_key = prev_key.strip().lower() or "ctrl+p"
 
     def compose(self) -> ComposeResult:
         with Container(id="model-dialog"):
             yield Static(self.provider_label, id="model-title")
             yield Input(placeholder="Search", id="model-search")
             yield ListView(id="model-list")
-            yield Static("Enter select   Esc back", id="model-footer")
+            yield Static(
+                f"Enter select   Esc back   {self.prev_key}/{self.next_key} move",
+                id="model-footer",
+            )
 
     def on_mount(self) -> None:
         self._rebuild("")
@@ -179,6 +193,31 @@ class ModelPickerScreen(ModalScreen):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "model-search":
             self._rebuild(event.value)
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == self.next_key:
+            event.stop()
+            self._move_model(1)
+        elif event.key == self.prev_key:
+            event.stop()
+            self._move_model(-1)
+
+    def _move_model(self, direction: int) -> None:
+        view = self.query_one("#model-list", ListView)
+        rows = [
+            index
+            for index, child in enumerate(view.children)
+            if isinstance(child, _ModelRow)
+        ]
+        if not rows:
+            return
+        if view.index in rows:
+            position = rows.index(view.index)
+            next_position = (position + direction) % len(rows)
+        else:
+            next_position = 0 if direction > 0 else len(rows) - 1
+        view.index = rows[next_position]
+        view.focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, _ModelRow):

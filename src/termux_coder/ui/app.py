@@ -335,6 +335,7 @@ class TermuxCoderApp(App):
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
     #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
     #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
+    #activity.-hidden, #status.-hidden { display: none; }
     Input { margin: 0 1; border: tall #456fa8; background: #11151c; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
@@ -368,6 +369,10 @@ class TermuxCoderApp(App):
         feed = self.query_one("#feed", ChatFeed)
         self._render_header()
         self.update_activity("READY", "waiting for your request")
+        if not self.settings.tui_show_activity:
+            self.query_one("#activity").add_class("-hidden")
+        if not self.settings.tui_show_status:
+            self.query_one("#status").add_class("-hidden")
         self._render_status()
         self.set_interval(1.6, self._tick)
 
@@ -518,7 +523,13 @@ class TermuxCoderApp(App):
                 return
             models = spec.models or (self.settings.model,)
             self.push_screen(
-                ModelPickerScreen(spec.label or provider_name, models, self.settings.model),
+                ModelPickerScreen(
+                    spec.label or provider_name,
+                    models,
+                    self.settings.model,
+                    next_key=self.settings.tui_model_next_key,
+                    prev_key=self.settings.tui_model_prev_key,
+                ),
                 lambda model: self._on_model_selected(provider_name, model),
             )
         except (KeyError, OSError, ValueError) as exc:

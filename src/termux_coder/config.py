@@ -35,6 +35,10 @@ class Settings:
     security_mode: str = field(default_factory=lambda: _env("SECURITY", "ASK"))
     # Show only compact progress indicators; never expose raw model reasoning.
     show_thinking: bool = field(default_factory=lambda: _env("SHOW_THINKING", "0") == "1")
+    tui_show_activity: bool = field(default_factory=lambda: _env("TUI_SHOW_ACTIVITY", "1") == "1")
+    tui_show_status: bool = field(default_factory=lambda: _env("TUI_SHOW_STATUS", "1") == "1")
+    tui_model_next_key: str = field(default_factory=lambda: _env("TUI_MODEL_NEXT_KEY", "ctrl+n"))
+    tui_model_prev_key: str = field(default_factory=lambda: _env("TUI_MODEL_PREV_KEY", "ctrl+p"))
 
     command_timeout: int = field(default_factory=lambda: int(_env("COMMAND_TIMEOUT", "120")))
     max_tool_rounds: int = 20
