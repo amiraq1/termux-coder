@@ -37,6 +37,8 @@ def test_retry_recovers_from_transient_timeout():
     assert result.provider == "fake"
     assert provider.calls == 3
     assert resilient.health().consecutive_failures == 0
+    assert resilient.health().as_dict()["status"] == "healthy"
+    assert resilient.configuration()["max_retries"] == 2
 
 
 def test_success_is_cached_with_bounded_key():
@@ -77,6 +79,7 @@ def test_circuit_opens_after_repeated_transient_failures():
     assert health.circuit_open is True
     assert health.consecutive_failures == 2
     assert provider.calls == 2
+    assert health.as_dict()["status"] == "degraded"
 
 
 def test_non_transient_errors_are_not_retried():

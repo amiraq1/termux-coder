@@ -120,3 +120,21 @@ def test_registry_isolates_exception_and_scrubs_error():
     assert result.status == "error"
     assert result.message == "check failed"
     assert "doctor-secret" not in str(result.details)
+
+
+def test_provider_health_is_local_and_does_not_search(tmp_path, monkeypatch):
+    from termux_coder.tools.duckduckgo import DuckDuckGoProvider
+
+    async def fail_if_called(self, args):
+        raise AssertionError("network search must not run in local doctor health")
+
+    monkeypatch.setattr(DuckDuckGoProvider, "search", fail_if_called)
+    runner = DoctorRunner(make_settings(tmp_path))
+
+    status, message, details = runner._provider_health()
+
+    assert status == "ok"
+    assert message == "duckduckgo provider is healthy"
+    assert details["health"]["status"] == "healthy"
+    assert details["network_probe"]["performed"] is False
+    assert details["configuration"]["cache_ttl_s"] >= 0

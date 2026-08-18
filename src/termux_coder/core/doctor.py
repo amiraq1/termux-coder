@@ -193,9 +193,16 @@ class DoctorRunner:
             cache_ttl_s=self.settings.web_search_cache_ttl_s,
             max_cache_entries=self.settings.web_search_cache_entries,
         )
-        return "ok", f"{self.settings.web_search_provider} provider is configured", {
-            "health": resilient.health().as_dict(),
-            "network_probe": "not run; use a future explicit network flag",
+        health = resilient.health()
+        status: CheckStatus = "warning" if health.circuit_open else "ok"
+        message = f"{self.settings.web_search_provider} provider is {health.as_dict()['status']}"
+        return status, message, {
+            "health": health.as_dict(),
+            "configuration": resilient.configuration(),
+            "network_probe": {
+                "performed": False,
+                "reason": "local health only; live probe requires --network",
+            },
         }
 
     def registry(self) -> DoctorCheckRegistry:

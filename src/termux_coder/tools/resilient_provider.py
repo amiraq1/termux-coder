@@ -25,6 +25,7 @@ class ProviderHealth:
     def as_dict(self) -> dict[str, Any]:
         return {
             "provider": self.provider,
+            "status": "degraded" if self.circuit_open else "healthy",
             "consecutive_failures": self.consecutive_failures,
             "circuit_open": self.circuit_open,
             "cooldown_remaining_s": round(self.cooldown_remaining_s, 3),
@@ -152,6 +153,17 @@ class ResilientWebSearchProvider(WebSearchProvider):
             cooldown_remaining_s=remaining,
             cache_entries=len(self._cache),
         )
+
+    def configuration(self) -> dict[str, Any]:
+        """Return non-sensitive resilience settings for local diagnostics."""
+        return {
+            "max_retries": self.max_retries,
+            "base_delay_s": self.base_delay_s,
+            "failure_threshold": self.failure_threshold,
+            "cooldown_s": self.cooldown_s,
+            "cache_ttl_s": self.cache_ttl_s,
+            "max_cache_entries": self.max_cache_entries,
+        }
 
     async def search(self, args: WebSearchArgs) -> WebSearchResult:
         key = self._cache_key(args)

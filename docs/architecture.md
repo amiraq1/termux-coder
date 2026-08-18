@@ -60,6 +60,7 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `DoctorReport` | Serializes scrubbed human/JSON diagnostic output with exit semantics | Warnings pass; errors/timeouts fail |
 | `DoctorCheckRegistry` | Registers and runs explicit local checks with per-check timeout | No dynamic discovery; checks must be side-effect free |
 | `CheckSpec` | Names a check, category, callable, and bounded timeout | Timeout max 30s; timeout is observation isolation, not a process sandbox |
+| `ProviderHealth` | Reports provider status, circuit state, failures, cooldown, and cache entries | Local metadata only; no live network probe |
 
 ## Research Contracts
 
@@ -118,6 +119,8 @@ PatchPlan.plan_id + audit metadata
 ## Web Search Boundary
 
 `web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands. In `GRANULAR` mode, web search and page fetch are automatic because they are read-only network operations; they never grant permission to mutate files. When `SEARCH_PROVIDER=official_docs`, `OfficialDocsProvider` filters results by exact host or subdomain membership in `OFFICIAL_DOCS_DOMAINS`; it does not treat a lookalike host such as `docs.python.org.evil.test` as official. The configured provider is wrapped by `ResilientWebSearchProvider` with bounded retries, TTL cache, circuit breaking, and optional health metadata.
+
+The `provider_health` Doctor check constructs the configured provider stack and reads `ProviderHealth` plus non-sensitive resilience configuration without calling `search`. It reports `network_probe.performed=false`; live connectivity is a separate explicit phase.
 
 The current web knowledge path is:
 

@@ -116,6 +116,10 @@ python -m termux_coder doctor --workspace ~/my-project --verbose
 
 أصبحت الفحوص مسجلة صراحةً عبر `DoctorCheckRegistry` و`CheckSpec`. لكل فحص اسم وفئة وtimeout مستقل بحد أقصى 30 ثانية. فشل فحص أو انتهاء مهله ينتج `CheckResult` مستقلًا ولا يمنع تشغيل الفحوص التالية. هذه الفحوص محلية وغير هدّامة؛ فالـtimeout يعزل نتيجة الفحص، لكنه ليس sandbox لقتل Python thread، لذلك لا يجوز تسجيل فحص يكتب ملفات أو ينفذ أوامر.
 
+## P4.4c: Provider Health Metadata
+
+يعرض فحص `provider_health` الحالة الفعلية للـ`ResilientWebSearchProvider` دون اتصال شبكي. تظهر حالة `healthy` أو `degraded`، وعدد الإخفاقات المتتالية، وحالة circuit breaker، ووقت التهدئة المتبقي، وعدد عناصر cache، وإعدادات resilience غير الحساسة. يعرض Doctor أيضًا `network_probe.performed=false` بوضوح؛ فالـlive probe مؤجل إلى `--network` في المرحلة التالية.
+
 ## P4.3: Verification Threat Model
 
 تشغيل `pytest` أو أي فحص للمشروع ليس قراءة آمنة تلقائيًا؛ فالفحوص قد تحمل `conftest.py` أو plugins أو كود المشروع. لذلك يطلب `VerificationRunner` صيغة argv في `.termux-coder.toml`، يرفض shell strings و`python -c` وتشغيل ملفات Python مباشرة، يقيّد وحدات Python المسموحة، يفرض timeout صلبًا قدره 30 ثانية، يحد المخرجات، ويوقف process group عند التعليق. كما يوقف حلقة الإصلاح بعد ثلاث محاولات افتراضيًا ويستخدم rollback عند توفر PatchPlan.
