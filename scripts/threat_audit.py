@@ -62,10 +62,10 @@ THREATS = (
     Threat(
         "T4",
         "Secrets written to audit logs",
-        (),
-        (),
-        (),
-        "No central SecretScrubber is implemented yet.",
+        ("src/termux_coder/security/scrubber.py", "src/termux_coder/security/audit.py"),
+        ("tests/test_scrubber.py",),
+        ("tests/test_scrubber.py", "tests/test_audit.py"),
+        "Known credential patterns are covered; arbitrary custom secret formats still require review.",
     ),
     Threat(
         "T5",

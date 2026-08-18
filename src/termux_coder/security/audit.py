@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .scrubber import SecretScrubber
+
 
 class AuditLog:
     """
@@ -14,9 +16,15 @@ class AuditLog:
     الحقول الاختيارية: session_id, tool, path, hash, reason, ...
     """
 
-    def __init__(self, path: Path, session_id: str | None = None):
+    def __init__(
+        self,
+        path: Path,
+        session_id: str | None = None,
+        scrubber: SecretScrubber | None = None,
+    ):
         self.path = path
         self.session_id = session_id
+        self.scrubber = scrubber or SecretScrubber()
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def log(self, event: str, **data) -> None:
@@ -28,9 +36,10 @@ class AuditLog:
         if self.session_id:
             record["session_id"] = self.session_id
         record.update(data)
+        safe_record = self.scrubber.scrub(record)
         try:
             with self.path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                fh.write(json.dumps(safe_record, ensure_ascii=False) + "\n")
         except OSError:
             pass  # عدم إيقاف العمليات بسبب فشل السجل
 

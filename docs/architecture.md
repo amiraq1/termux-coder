@@ -49,7 +49,8 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `SymbolTarget` | Resolves one Python function, class, or method using AST | Missing or ambiguous symbols are rejected |
 | `apply_symbol_patch` | Generates and applies a narrow symbol-scoped patch | Read hash, Safe Preview, approval, and verification remain mandatory |
 | `VerificationRunner` | Runs bounded, allowlisted project checks | argv only, no `shell=True` |
-| `AuditLog` | Records decisions and security-relevant events | UTC timestamps and operation context |
+| `AuditLog` | Records decisions and security-relevant events | UTC timestamps, operation context, and scrubbed persistence |
+| `SecretScrubber` | Redacts sensitive fields and known credential patterns before JSONL storage | Storage-boundary privacy layer; not a complete secret detector |
 | `ResearchCoordinator` | Ranks sources and converts search/page results into evidence packets | Does not grant write approval or execute mutations |
 | `CapabilityRegistry` | Registers explicitly configured external capabilities | No dynamic discovery; metadata does not grant permissions |
 | `WebSearchCapabilityAdapter` | Adapts a read-only search provider to the capability contract | Delegates search only; no shell or file access |
@@ -144,7 +145,8 @@ The boundaries are as follows:
 6. `VerificationRunner` remains the final automated check after mutation.
 7. Network approval never implies file-write approval.
 8. In `GRANULAR`, `READ` and `NETWORK` permissions are automatic, allowlisted verification commands are automatic, and `WRITE`/general `EXECUTE` operations require explicit approval. Blocked command patterns remain denied in every mode.
-9. Symbol-aware targeting never bypasses the existing patch engine; it generates an exact SEARCH/REPLACE block and delegates to the same atomic writer.
+9. `AuditLog` scrubs structured payloads before JSONL persistence; the scrubber reduces accidental leakage but does not certify that arbitrary custom secrets are absent.
+10. Symbol-aware targeting never bypasses the existing patch engine; it generates an exact SEARCH/REPLACE block and delegates to the same atomic writer.
 
 ## Research-Orchestrator Integration
 
@@ -181,7 +183,7 @@ The orchestrator must not transition to file execution merely because a search o
 
 The contract tests are in `tests/test_research_models.py`. They cover query requirements, control characters, duplicate packages, unsafe URLs, timezone-aware timestamps, source hashes, evidence fingerprints, selected-source consistency, and confidence rules. Symbol tests are in `tests/test_symbol.py` and `tests/test_symbol_patch.py`.
 
-Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Policy tests cover GRANULAR automatic reads/search/verification, approval for writes/deletes/general commands, blocked pipelines, and environment configuration.
+Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Capability tests cover explicit registration, duplicate rejection, official-domain filtering, and legacy fallback. Secret-scrubber tests cover known credential patterns, sensitive fields, input immutability, and AuditLog persistence redaction. Policy tests cover GRANULAR automatic reads/search/verification, approval for writes/deletes/general commands, blocked pipelines, and environment configuration.
  Fetch-page tests cover SSRF blocking, private redirects, content-type rejection, bounded extraction, and RESEARCHING orchestration. Symbol tests cover AST extraction, ambiguity rejection, signature checks, workspace boundaries, TOCTOU hashes, narrow diffs, approval, and orchestration. Future integration tests must cover:
 
 ```text

@@ -64,6 +64,7 @@
 - في وضع GRANULAR: القراءة والبحث الشبكي وأوامر التحقق المسموح بها (`pytest` و`ruff` و`mypy` و`pyright` و`python -m pytest/compileall/unittest`) تعمل تلقائيًا؛ التعديل والحذف والأوامر العامة تطلب موافقة، والأنماط الخطرة مرفوضة دائمًا.
 - في وضع READONLY: القراءة والبحث مسموحان، والكتابة والتنفيذ مرفوضان. وضع AUTO يتجاوز الموافقة وهو غير موصى به على الهاتف.
 - نسخ احتياطية في .termux_coder/backups + تدقيق في audit.jsonl.
+- `SecretScrubber` ينقح الحقول الحساسة والأنماط المعروفة قبل كتابة أي سجل JSONL؛ التنقيح طبقة خصوصية وليس ضمانًا لاكتشاف كل سر مخصص.
 - Git discipline: checkpoint قبل المهام، commit ببادئة "agent:".
 
 ### تشغيل السياسة المتدرجة
@@ -77,6 +78,10 @@ termux-coder --workspace ~/my-project
 ```
 
 يبقى Safe Preview والموافقة وRollback مطلوبة قبل أي تعديل، بينما لا تؤدي موافقة الأداة إلى تجاوز Workspace Jail أو الأنماط المحظورة.
+
+## P4.1: Audit Redaction
+
+يُمرّر كل payload إلى `SecretScrubber` داخل `AuditLog` قبل التخزين. التنقيح يشمل مفاتيح مثل `api_key` و`password` و`cookie` و`authorization`، وأنماطًا معروفة لمفاتيح OpenAI وGitHub وAWS وBearer tokens وروابط credentials. لا يغيّر التنقيح البيانات المستخدمة في التنفيذ؛ فهو يعمل عند حد التخزين فقط، مع بقاء الحاجة إلى عدم إرسال الأسرار إلى الوكيل أصلًا.
 
 ## البحث عبر الإنترنت والمعرفة الموثقة
 

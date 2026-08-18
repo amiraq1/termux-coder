@@ -13,10 +13,10 @@ def test_truth_audit_classifies_repository_evidence(monkeypatch):
     report, stats = threat_audit.audit(verify=True)
 
     assert "| T1 | Path traversal and symlink escape | **IMPLEMENTED** |" in report
-    assert "| T4 | Secrets written to audit logs | **PLANNED** |" in report
+    assert "| T4 | Secrets written to audit logs | **IMPLEMENTED** |" in report
     assert "| T15 | Network stream interception | **PARTIAL** |" in report
-    assert "IMPLEMENTED: `6`" in report
-    assert stats == {"IMPLEMENTED": 6, "PARTIAL": 1, "PLANNED": 4}
+    assert "IMPLEMENTED: `7`" in report
+    assert stats == {"IMPLEMENTED": 7, "PARTIAL": 1, "PLANNED": 3}
 
 
 def test_truth_audit_does_not_treat_missing_proof_as_implemented(monkeypatch):
