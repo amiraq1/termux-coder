@@ -45,6 +45,12 @@ class CliUI(AgentUI):
             logo.ctrl(f"tool:{payload.get('name')}", str(payload.get("args"))[:120])
         elif kind == "tool_result":
             print(str(payload.get("text"))[:1500])
+        elif kind == "tool_denied":
+            logo.ctrl("denied", f"{payload.get('tool')}: {payload.get('reason', '')}")
+        elif kind == "approval_requested":
+            logo.ctrl("approval", f"{len(payload.get('calls', []))} operation(s) pending")
+        elif kind == "orchestrator_result":
+            logo.ctrl("orchestrator", f"{payload.get('state')}: {payload.get('error', '')}")
         elif kind == "max_rounds":
             print("stopped: too many tool rounds")
 

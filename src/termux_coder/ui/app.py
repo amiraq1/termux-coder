@@ -221,6 +221,21 @@ class TextualUI(AgentUI):
             self._put(Static(tool_line("TODOS", f"{len(items)} items")))
             self._put(Static(todos_renderable(items)))
 
+        elif kind == "tool_denied":
+            self._put(Static(Text(
+                f"DENIED · {payload.get('tool', '')} · {payload.get('reason', '')}",
+                style=theme.RED,
+            )))
+        elif kind == "approval_requested":
+            self._put(Static(Text(
+                f"approval requested · {len(payload.get('calls', []))} operation(s)",
+                style=theme.ORANGE,
+            )))
+        elif kind == "orchestrator_result":
+            self._put(Static(Text(
+                f"orchestrator · {payload.get('state', '')} {payload.get('error', '')}",
+                style=theme.DIM,
+            )))
         elif kind == "max_rounds":
             self._put(Static(Text("stopped: too many tool rounds", style="yellow")))
 

@@ -27,11 +27,13 @@ async def run_command(args: RunCommandArgs, ctx) -> str:
         ctx.audit.log("command_blocked", command=command)
         return "command blocked by policy"
 
-    if ctx.policy.requires_approval(command):
+    if ctx.policy.requires_approval(command) and not getattr(ctx, "orchestrator_approval_granted", False):
         approved = await ctx.ui.request_approval("command", {"command": command})
-        ctx.audit.log("command_approval", command=command, approved=approved)
+        ctx.audit.log("command_approval", command=command, approved=approved, source="tool")
         if not approved:
             return "user rejected the command"
+    elif ctx.policy.requires_approval(command):
+        ctx.audit.log("command_approval", command=command, approved=True, source="orchestrator")
 
     try:
         proc = await asyncio.to_thread(

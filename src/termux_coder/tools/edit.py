@@ -155,8 +155,11 @@ async def apply_patch(args: ApplyPatchArgs, ctx) -> str:
 
     diff = patchlib.make_diff(rel, old, new)
 
-    approved = await ctx.ui.request_approval("patch", {"diff": diff, "path": rel})
-    ctx.audit.log("patch_approval", path=rel, approved=approved)
+    if getattr(ctx, "orchestrator_approval_granted", False):
+        approved = True
+    else:
+        approved = await ctx.ui.request_approval("patch", {"diff": diff, "path": rel})
+    ctx.audit.log("patch_approval", path=rel, approved=approved, source="orchestrator" if getattr(ctx, "orchestrator_approval_granted", False) else "tool")
     if not approved:
         return "user rejected the patch"
 

@@ -33,6 +33,7 @@ from ..models.contracts import (
 from ..security.audit import AuditLog
 from ..security.policy import PolicyEngine
 from .registry import ToolRegistry
+from .recovery import recover_tool_calls
 
 
 # ══════════════════════════════════════════════════════════════
@@ -119,6 +120,9 @@ class AgentOrchestrator:
         max_rounds: int = 20,
         max_duration_s: float = 300.0,
         on_event: Callable[..., Coroutine] | None = None,
+        approval_handler: Callable[[str, dict], Coroutine] | None = None,
+        message_sink: Callable[[dict], None] | None = None,
+        message_preparer: Callable[[list[dict]], list[dict]] | None = None,
     ):
         self.provider       = provider
         self.registry       = registry
@@ -128,6 +132,9 @@ class AgentOrchestrator:
         self.max_rounds     = max_rounds
         self.max_duration_s = max_duration_s
         self._on_event      = on_event or _noop_event
+        self._approval_handler = approval_handler
+        self._message_sink = message_sink
+        self._message_preparer = message_preparer
 
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
@@ -157,6 +164,12 @@ class AgentOrchestrator:
             from_state=old.value,
             to_state=new_state.value,
         )
+
+    def _append_message(self, messages: list[dict], message: dict) -> None:
+        """أضف رسالة إلى تاريخ الدورة واحفظها فورًا عند توفر sink."""
+        messages.append(message)
+        if self._message_sink is not None:
+            self._message_sink(message)
 
     # ── تقييم السياسة ────────────────────────────────────────
 
@@ -303,22 +316,21 @@ class AgentOrchestrator:
         call = ecall.call
         start = time.monotonic()
 
-        # تحقق نهائي من الجاهزية
-        if not ecall.is_ready_to_execute:
-            reason = ecall.deny_reason or "awaiting approval"
-            return ToolResult.failure(
-                tool=call.name, call_id=call.call_id,
-                code=ErrorCode.APPROVAL_REQUIRED,
-                message=reason,
-            )
-
-        # DENY: لا تنفيذ
+        # DENY نهائي ويجب فحصه قبل حالة الجاهزية.
         if ecall.decision == DecisionKind.DENY:
             return ToolResult.failure(
                 tool=call.name, call_id=call.call_id,
                 code=ErrorCode.POLICY_DENY,
                 message=ecall.deny_reason or "denied by policy",
                 retryable=False,
+            )
+
+        # الاستدعاء غير الموافق عليه لا يُنفذ.
+        if not ecall.is_ready_to_execute:
+            return ToolResult.failure(
+                tool=call.name, call_id=call.call_id,
+                code=ErrorCode.APPROVAL_REQUIRED,
+                message=ecall.deny_reason or "approval required",
             )
 
         # التحقق من وجود الأداة
@@ -356,7 +368,10 @@ class AgentOrchestrator:
             fingerprint=call.arguments_fingerprint[:16],
         )
 
-        # تنفيذ الأداة
+        # تنفيذ الأداة. يمنع هذا العلم طلب موافقة ثانية داخل الأداة
+        # بعد أن تحقق Orchestrator من الموافقة الخارجية.
+        previous_approval = getattr(self.ctx, "orchestrator_approval_granted", False)
+        setattr(self.ctx, "orchestrator_approval_granted", ecall.is_ready_to_execute)
         try:
             raw = await handler(dict(call.arguments), self.ctx)
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -381,6 +396,8 @@ class AgentOrchestrator:
                 retryable=True,
                 duration_ms=duration_ms,
             )
+        finally:
+            setattr(self.ctx, "orchestrator_approval_granted", previous_approval)
 
         self.audit.log(
             "tool_result",
@@ -457,15 +474,20 @@ class AgentOrchestrator:
                 await self._on_event("round_start", round=round_idx)
 
                 schemas = self.registry.schemas()
+                model_messages = (
+                    self._message_preparer(messages)
+                    if self._message_preparer is not None
+                    else messages
+                )
                 response = await self.provider.chat_stream(
-                    messages, schemas, on_token
+                    model_messages, schemas, on_token
                 )
 
                 # تحويل الاستجابة الخام إلى ProviderResponse
                 provider_resp = self._adapt_response(response, self._turn_id)
 
                 # ── حفظ رسالة المساعد أولاً (ضروري للـ API) ──
-                messages.append(provider_resp.assistant_message)
+                self._append_message(messages, provider_resp.assistant_message)
                 await self._on_event("assistant_done")
 
                 if not provider_resp.has_tool_calls:
@@ -509,7 +531,7 @@ class AgentOrchestrator:
                         code=ErrorCode.POLICY_DENY,
                         message=ecall.deny_reason or "denied",
                     )
-                    messages.append({
+                    self._append_message(messages, {
                         "role": "tool",
                         "tool_call_id": ecall.call.call_id,
                         "content": deny_result.to_content_str(),
@@ -534,6 +556,19 @@ class AgentOrchestrator:
                             "fingerprint": e.call.arguments_fingerprint[:16],
                         } for e in needs_approval],
                     )
+                    # اطلب موافقة الواجهة إن كان المسار التفاعلي موصولًا.
+                    if self._approval_handler is not None:
+                        for ecall in needs_approval:
+                            approved = await self._approval_handler(
+                                self._approval_kind(ecall.call.name),
+                                self._approval_payload(ecall),
+                            )
+                            if approved:
+                                self.grant_approval(ecall.call.call_id)
+                            else:
+                                self._cancel_event.set()
+                                break
+
                     # انتظر حتى تُمنح جميع الموافقات أو يُلغى
                     granted = await self._wait_for_approvals(needs_approval, deadline)
                     if not granted:
@@ -574,7 +609,7 @@ class AgentOrchestrator:
                             getattr(self.ctx, "settings", None), "max_output_chars", 8000
                         )
                     )
-                    messages.append({
+                    self._append_message(messages, {
                         "role": "tool",
                         "tool_call_id": ecall.call.call_id,
                         "content": content,
@@ -629,6 +664,24 @@ class AgentOrchestrator:
 
     # ── انتظار الموافقات ─────────────────────────────────────
 
+    @staticmethod
+    def _approval_kind(tool_name: str) -> str:
+        if tool_name in {"apply_patch", "rollback_patch"}:
+            return "patch"
+        if tool_name.startswith("git_"):
+            return "git"
+        return "command"
+
+    @staticmethod
+    def _approval_payload(ecall: EvaluatedToolCall) -> dict:
+        call = ecall.call
+        args = call.arguments
+        if call.name in {"apply_patch", "rollback_patch"}:
+            return {"path": args.get("path", ""), "diff": args.get("patch", "")}
+        if call.name.startswith("git_"):
+            return {"title": f"Approve {call.name}?", "body": json.dumps(args, ensure_ascii=False)}
+        return {"command": args.get("command", json.dumps(args, ensure_ascii=False))}
+
     async def _wait_for_approvals(
         self,
         calls: list[EvaluatedToolCall],
@@ -676,6 +729,13 @@ class AgentOrchestrator:
         # المزودون الحاليون يعيدون dict مباشرة
         assistant_msg = dict(raw_response)
         raw_calls = assistant_msg.pop("tool_calls", None) or []
+
+        # توافق مع المزودات التي تطبع استدعاء الأداة كنص بدل native tool calls.
+        if not raw_calls:
+            recovered = recover_tool_calls(
+                assistant_msg.get("content") or "", self.registry
+            )
+            raw_calls = recovered or []
 
         tool_calls = self._parse_raw_calls(raw_calls, turn_id)
 

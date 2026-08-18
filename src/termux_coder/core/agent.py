@@ -19,6 +19,8 @@ from ..security.jail import WorkspaceJail
 from ..security.policy import CommandPolicy, PolicyEngine
 from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
+from .orchestrator import AgentOrchestrator, TurnState
+from .orchestrator_adapter import RouterProviderAdapter
 
 
 @dataclass
@@ -93,6 +95,56 @@ class Agent:
         self.ctx = ToolContext(
             self.jail, settings, self.state, ui, self.audit, self.policy, self.policy_engine, self.repomap, self.lsp
         )
+        self.orchestrator: AgentOrchestrator | None = None
+
+    async def _run_turn_orchestrated(self, user_text: str) -> None:
+        """مسار P2 التجريبي؛ يحافظ على عقد الجلسة ويستخدم المسار القديم كخطة تراجع."""
+        user_message = {"role": "user", "content": user_text}
+        self.messages.append(user_message)
+        self._persist(user_message)
+        if self.store and self._seq == 1:
+            self.store.set_title(self.session_id, user_text[:40])
+
+        if self.settings.repo_map_enabled:
+            map_text = await asyncio.to_thread(self.repomap.render_budget)
+            if self.repomap.changed or not self._map_sent:
+                await self.ui.on_event("map_ready", **self.repomap.last_stats)
+                self._map_sent = True
+            self._refresh_map_message(map_text)
+
+        def prepare_messages(messages: list[dict]) -> list[dict]:
+            current_seq = len(messages) - 1
+            items = [
+                PriorityEngine.classify(msg, i, current_seq)
+                for i, msg in enumerate(messages)
+            ]
+            return self.assembler.assemble(items)
+
+        provider = RouterProviderAdapter(self.router, self.ui, user_text)
+        provider.begin_turn()
+        self.orchestrator = AgentOrchestrator(
+            provider=provider,
+            registry=self.registry,
+            policy_engine=self.policy_engine,
+            audit=self.audit,
+            ctx=self.ctx,
+            max_rounds=self.settings.max_tool_rounds,
+            max_duration_s=max(60.0, self.settings.command_timeout * 2.0),
+            on_event=self.ui.on_event,
+            approval_handler=self.ui.request_approval,
+            message_sink=self._persist,
+            message_preparer=prepare_messages,
+        )
+        result = await self.orchestrator.run_turn(
+            self.messages,
+            on_token=self.ui.on_token,
+        )
+        if result.state != TurnState.IDLE:
+            await self.ui.on_event(
+                "orchestrator_result",
+                state=result.state.value,
+                error=result.error or "",
+            )
 
     async def close(self) -> None:
         if self.lsp is not None:
@@ -116,6 +168,10 @@ class Agent:
         self.messages.insert(1, {"role": "system", "content": content})
 
     async def run_turn(self, user_text: str) -> None:
+        if self.settings.orchestrator_enabled:
+            await self._run_turn_orchestrated(user_text)
+            return
+
         self.router.begin_turn()
         intent_edit = self.router.looks_like_edit(user_text)
         intent_run = self.router.looks_like_run(user_text)

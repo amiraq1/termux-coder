@@ -34,6 +34,11 @@ class Settings:
     lsp_enabled: bool = field(default_factory=lambda: _env("LSP", "1") == "1")
     lsp_wait: float = field(default_factory=lambda: float(_env("LSP_WAIT", "0.8")))
 
+    # تفعيل مسار Orchestrator تدريجيًا؛ المسار القديم هو الافتراضي الآمن.
+    orchestrator_enabled: bool = field(
+        default_factory=lambda: _env("ORCHESTRATOR", "0") == "1"
+    )
+
     @property
     def state_dir(self) -> Path:
         return self.workspace / self.state_dir_name
