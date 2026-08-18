@@ -147,7 +147,70 @@ def _friendly_reply(text: str) -> str | None:
     return None
 
 
+
+def _format_final_answer(agent, turn_result) -> str:
+    """Ensure actual read/search data or errors are shown when the model output is generic or missing."""
+    if not turn_result:
+        return _latest_assistant_text(agent)
+
+    final_text = (turn_result.final_text or "").strip()
+
+    if not turn_result.tool_results:
+        return final_text or _latest_assistant_text(agent)
+
+    successful = [tr for tr in turn_result.tool_results if tr.ok]
+    failed = [tr for tr in turn_result.tool_results if not tr.ok]
+
+    if not successful:
+        lines = []
+        for tr in failed:
+            if tr.error:
+                if tr.error.code.value == "policy_deny":
+                    lines.append(f"denied: {tr.error.message}")
+                else:
+                    lines.append(f"error: {tr.error.message}")
+            else:
+                lines.append(f"error: {tr.tool} failed")
+        return "\n".join(lines)
+
+    read_outputs = []
+    for tr in successful:
+        if tr.tool in ("list_dir", "search_text"):
+            data = tr.data if isinstance(tr.data, str) else str(tr.data)
+            read_outputs.append(f"[{tr.tool}]\n{data.strip()}")
+        elif tr.tool == "read_file":
+            data = tr.data if isinstance(tr.data, str) else str(tr.data)
+            lines = data.splitlines()
+            if len(lines) > 20:
+                read_outputs.append(f"[read_file]\n(file content length: {len(lines)} lines)")
+            else:
+                read_outputs.append(f"[read_file]\n{data.strip()}")
+        elif tr.tool in ("web_search", "fetch_page"):
+            if isinstance(tr.data, list):
+                res = []
+                for idx, r in enumerate(tr.data):
+                    if isinstance(r, dict):
+                        res.append(f"{idx+1}. {r.get('title', 'Untitled')} - {r.get('url', '')}")
+                read_outputs.append(f"[{tr.tool}]\n" + "\n".join(res))
+            else:
+                read_outputs.append(f"[{tr.tool}]\n{str(tr.data).strip()}")
+
+    if read_outputs:
+        if not final_text:
+            return "\n\n".join(read_outputs)
+
+        lower_text = final_text.casefold()
+        generic = len(final_text) < 150 and any(kw in lower_text for kw in ("this function", "listing the files", "search the", "call lists"))
+        if generic:
+            return "\n\n".join(read_outputs)
+
+        return final_text + "\n\n" + "\n\n".join(read_outputs)
+
+    return final_text or _latest_assistant_text(agent)
+
+
 def _latest_assistant_text(agent) -> str:
+
     for message in reversed(agent.messages):
         if message.get("role") == "assistant":
             content = str(message.get("content") or "").strip()
@@ -229,7 +292,7 @@ async def cli_main(settings: Settings) -> None:
             turn_result = getattr(agent, "last_turn_result", None)
             turn_state = getattr(getattr(turn_result, "state", None), "value", None)
             if turn_result is None or turn_state == "idle":
-                final_text = _latest_assistant_text(agent)
+                final_text = _format_final_answer(agent, turn_result)
                 if final_text:
                     print()
                     logo.ctrl("answer")
