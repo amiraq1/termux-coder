@@ -40,7 +40,10 @@ class VerificationRunner:
     DEFAULT_ALLOWED_PROGRAMS = frozenset(
         {"python", "python3", "pytest", "ruff", "mypy", "node", "npm", "git", "printf", "sleep"}
     )
-    SAFE_PYTHON_MODULES = frozenset({"pytest", "py_compile", "ruff", "mypy"})
+    SAFE_PYTHON_MODULES = frozenset(
+        {"pytest", "py_compile", "compileall", "unittest", "ruff", "mypy", "pyright"}
+    )
+    MAX_TIMEOUT_S = 30.0
 
     def __init__(
         self,
@@ -55,6 +58,7 @@ class VerificationRunner:
         self.config_path = self.workspace_root / config_name
         self.allowed_programs = frozenset(allowed_programs or self.DEFAULT_ALLOWED_PROGRAMS)
         self.repair_attempts = 0
+        self._configured_timeout_s: float | None = None
 
     @property
     def max_repair_attempts(self) -> int:
@@ -95,6 +99,9 @@ class VerificationRunner:
         timeout = section.get("timeout_s", getattr(self.settings, "verification_timeout_s", 30))
         if not isinstance(timeout, int | float) or timeout <= 0:
             return None, "verification.timeout_s must be positive"
+        if float(timeout) > self.MAX_TIMEOUT_S:
+            return None, f"verification.timeout_s exceeds hard limit of {self.MAX_TIMEOUT_S:g}s"
+        self._configured_timeout_s = float(timeout)
         return argv, ""
 
     @property
@@ -144,7 +151,22 @@ class VerificationRunner:
             return VerificationResult(status, 0 if status == VerificationStatus.SKIPPED else -1, "", reason, (), 0, reason=reason)
 
         limit = int(getattr(self.settings, "verification_max_output_chars", 5000))
-        timeout = float(getattr(self.settings, "verification_timeout_s", 30.0))
+        settings_timeout = float(getattr(self.settings, "verification_timeout_s", self.MAX_TIMEOUT_S))
+        timeout = min(
+            self._configured_timeout_s if self._configured_timeout_s is not None else settings_timeout,
+            settings_timeout,
+            self.MAX_TIMEOUT_S,
+        )
+        if timeout <= 0:
+            return VerificationResult(
+                VerificationStatus.CONFIG_ERROR,
+                -1,
+                "",
+                "verification timeout must be positive",
+                argv,
+                0,
+                reason="verification timeout must be positive",
+            )
         started = time.monotonic()
         proc = None
         stdout_task = None

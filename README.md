@@ -100,6 +100,12 @@ circuit: 3 failures → 60s cooldown
 cache: 30s TTL و32 نتيجة كحد أقصى
 ```
 
+## P4.3: Verification Threat Model
+
+تشغيل `pytest` أو أي فحص للمشروع ليس قراءة آمنة تلقائيًا؛ فالفحوص قد تحمل `conftest.py` أو plugins أو كود المشروع. لذلك يطلب `VerificationRunner` صيغة argv في `.termux-coder.toml`، يرفض shell strings و`python -c` وتشغيل ملفات Python مباشرة، يقيّد وحدات Python المسموحة، يفرض timeout صلبًا قدره 30 ثانية، يحد المخرجات، ويوقف process group عند التعليق. كما يوقف حلقة الإصلاح بعد ثلاث محاولات افتراضيًا ويستخدم rollback عند توفر PatchPlan.
+
+التفاصيل والحدود موثقة في [Verification Threat Model](docs/verification-threat-model.md).
+
 ## البحث عبر الإنترنت والمعرفة الموثقة
 
 يحتوي النظام على أداة `web_search` للبحث الشبكي للقراءة فقط، وتعمل عبر `Network Policy` ومزود Async قابل للتبديل. نتائج البحث تُعامل دائمًا كبيانات ويب غير موثوقة، ولا تمنح موافقة على تعديل الملفات أو تشغيل الأوامر. يدعم `TERMUX_CODER_SEARCH_PROVIDER=official_docs` مزودًا مقيدًا يعيد فقط النتائج الواقعة ضمن allowlist للنطاقات الرسمية، ويستخدم DuckDuckGo كمحرك جمع أولي دون السماح بمرور الروابط الخارجية.
