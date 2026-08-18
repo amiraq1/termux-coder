@@ -32,6 +32,19 @@ class WelcomeCard(Static):
     """Compact start card for small terminal screens."""
 
 
+class PromptInput(Input):
+    """Prompt input that preserves the global provider-picker shortcut."""
+
+    def __init__(self, app: "TermuxCoderApp", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.termux_app = app
+
+    def on_key(self, event) -> None:
+        if event.key == "ctrl+a":
+            event.stop()
+            self.termux_app.action_open_provider_picker()
+
+
 class TextualUI(AgentUI):
     def __init__(self, app: "TermuxCoderApp"):
         self.app = app
@@ -363,7 +376,7 @@ class TermuxCoderApp(App):
                 yield ChatFeed(id="feed")
                 yield Static(id="activity")
                 yield Static(id="status")
-                yield Input(id="prompt", placeholder="Ask your question…")
+                yield PromptInput(self, id="prompt", placeholder="Ask your question…")
 
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
