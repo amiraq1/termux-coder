@@ -245,6 +245,10 @@ class TextualUI(AgentUI):
             self._put(Static(tool_line("FETCH", "direct-page", "page loaded")))
         elif kind == "fetch_page_failed":
             self._put(Static(Text(f"FETCH · failed · {payload.get('error', '')}", style=theme.RED)))
+        elif kind == "research_packet":
+            self._put(Static(tool_line("RESEARCH", payload.get("confidence", ""), f"{payload.get('evidence_count', 0)} evidence")))
+        elif kind == "research_failed":
+            self._put(Static(Text(f"RESEARCH · failed · {payload.get('error', '')}", style=theme.RED)))
         elif kind == "verification_start":
             self._put(Static(Text("VERIFYING · running project verification", style=theme.ORANGE)))
         elif kind == "verification_result":
@@ -376,6 +380,8 @@ class TermuxCoderApp(App):
             "tool_start": "EXECUTING",
             "web_search_started": "RESEARCHING",
             "fetch_page_started": "RESEARCHING",
+            "research_start": "RESEARCHING",
+            "research_packet": "RESEARCHING",
             "approval_requested": "AWAITING APPROVAL",
             "verification_start": "VERIFYING",
             "verification_result": f"VERIFY {payload.get('status', '')}",

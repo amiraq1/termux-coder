@@ -146,9 +146,9 @@ core/research.py
   └── ResearchPacketBuilder
 ```
 
-The coordinator accepts a `TaskIntent`, can search through a provider, optionally fetch ranked pages through the protected `fetch_page` service, prefer official documentation and package registries, construct a validated `ResearchPacket`, and pass only evidence data into planning. Automatic invocation based on `TaskIntent.requires_current_docs` is the next integration step.
+The coordinator accepts a `TaskIntent`, searches through a provider, fetches ranked pages through the protected `fetch_page` service, prefers official documentation and package registries, constructs a validated `ResearchPacket`, and passes only evidence data into planning. `AgentOrchestrator` invokes this path automatically when the task contains an explicit current-documentation marker and `TERMUX_CODER_RESEARCH_AUTO=1`. The packet and intent are persisted in `SessionState` for resumption.
 
-The orchestrator must not transition to file execution merely because a search or page fetch returned data. A validated packet with sufficient confidence, a PatchPlan with a Safe Preview, an approval grant tied to the plan fingerprint, and successful verification after application are required before mutation. The current coordinator itself never grants approval and never mutates files.
+The orchestrator must not transition to file execution merely because a search or page fetch returned data. A validated packet with sufficient confidence, a PatchPlan with a Safe Preview, an approval grant tied to the plan fingerprint, and successful verification after application are required before mutation. The current coordinator itself never grants approval and never mutates files. In `ASK` mode, the orchestrator requests Network approval before invoking the coordinator; rejecting it cancels the turn before the model is called.
 
 ## Configuration and Feature Flags
 
@@ -156,6 +156,7 @@ The orchestrator must not transition to file execution merely because a search o
 |---|---:|---|
 | `TERMUX_CODER_ORCHESTRATOR` | `0` | Enables the orchestrated execution path |
 | `TERMUX_CODER_WEB_SEARCH` | `1` | Enables the read-only web-search tool |
+| `TERMUX_CODER_RESEARCH_AUTO` | `1` | Automatically researches tasks that request current documentation |
 | `TERMUX_CODER_SEARCH_PROVIDER` | `duckduckgo` | Selects the provider implementation |
 | `TERMUX_CODER_SEARCH_TIMEOUT` | `10` | Total network timeout in seconds |
 | `TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES` | `500000` | Maximum provider response size |

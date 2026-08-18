@@ -29,6 +29,7 @@
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
 | TERMUX_CODER_ORCHESTRATOR | — | 0 |
 | TERMUX_CODER_WEB_SEARCH | — | 1 |
+| TERMUX_CODER_RESEARCH_AUTO | — | 1 |
 | TERMUX_CODER_SEARCH_PROVIDER | — | duckduckgo |
 | TERMUX_CODER_SEARCH_TIMEOUT | — | 10 seconds |
 | TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES | — | 500000 |
@@ -70,7 +71,7 @@
 | `EvidenceItem` | يمثل مقتطفًا محدودًا من مصدر ويب مع الإصدار والبصمة |
 | `ResearchPacket` | يربط الأدلة بالنية والمصادر المختارة ومستوى الثقة |
 
-تم تفعيل حالة `RESEARCHING` في `AgentOrchestrator`، وإضافة `fetch_page` لجلب صفحات HTTP(S) العامة للقراءة فقط مع فحص SSRF والـredirects ونوع المحتوى والحجم. كما أصبح `ResearchCoordinator` يحول نتائج البحث والصفحات إلى `EvidenceItem` ويجمعها في `ResearchPacket` مع ترتيب المصادر والبصمات ومستوى الثقة. تبقى الصفحات والنتائج بيانات ويب غير موثوقة ولا تمنح موافقة على تعديل الملفات. راجع [وثيقة التصميم المعماري](docs/architecture.md) للتدفق الكامل وحدود الثقة.
+تم تفعيل حالة `RESEARCHING` في `AgentOrchestrator`، وإضافة `fetch_page` لجلب صفحات HTTP(S) العامة للقراءة فقط مع فحص SSRF والـredirects ونوع المحتوى والحجم. كما أصبح `ResearchCoordinator` يُستدعى تلقائيًا للمهام التي تطلب وثائق حديثة، ويحوّل نتائج البحث والصفحات إلى `EvidenceItem` ويجمعها في `ResearchPacket` مع ترتيب المصادر والبصمات ومستوى الثقة. يُحفظ packet في حالة الجلسة، ولا يبدأ الوكيل استدعاء النموذج التنفيذي قبل إكمال بوابة البحث. تبقى الصفحات والنتائج بيانات ويب غير موثوقة ولا تمنح موافقة على تعديل الملفات. راجع [وثيقة التصميم المعماري](docs/architecture.md) للتدفق الكامل وحدود الثقة.
 
 ## الطبقات
 

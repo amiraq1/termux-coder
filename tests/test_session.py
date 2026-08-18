@@ -89,3 +89,20 @@ def test_recent_ordering(tmp_path):
     recent = store.list_recent()
     assert recent[0]["id"] == a
     assert recent[1]["id"] == b
+
+
+def test_research_state_roundtrip(tmp_path):
+    from termux_coder.core.context import SessionState
+
+    store = SessionStore(tmp_path / "research.db")
+    sid = store.create("/w", "m")
+    state = SessionState(
+        research_intent={"intent_id": "intent-1234", "requires_current_docs": True},
+        research_packet={"packet_id": "packet-1234", "packet_hash": "a" * 64},
+    )
+
+    store.save_state(sid, state)
+    restored = store.load_state(sid)
+
+    assert restored.research_intent["intent_id"] == "intent-1234"
+    assert restored.research_packet["packet_id"] == "packet-1234"

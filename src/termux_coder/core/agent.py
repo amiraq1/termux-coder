@@ -22,7 +22,10 @@ from .registry import ToolRegistry
 from .orchestrator import AgentOrchestrator, TurnState
 from .orchestrator_adapter import RouterProviderAdapter
 from .verification import VerificationRunner
+from .research import ResearchCoordinator
 from ..tools.preview import PatchPreviewService
+from ..tools.duckduckgo import DuckDuckGoProvider
+from ..tools.fetch_page import FetchPageService
 
 
 @dataclass
@@ -36,6 +39,7 @@ class ToolContext:
     policy_engine: PolicyEngine
     repomap: object
     lsp: object
+    research_coordinator: ResearchCoordinator | None = None
 
 
 class Agent:
@@ -94,8 +98,35 @@ class Agent:
             else:
                 self.session_id = store.create(str(self.jail.root), settings.model)
 
+        self.research_coordinator = None
+        if (
+            getattr(settings, "web_search_enabled", True)
+            and getattr(settings, "research_auto_enabled", True)
+        ):
+            search_provider = DuckDuckGoProvider(
+                timeout_s=settings.web_search_timeout_s,
+                max_response_bytes=settings.web_search_max_response_bytes,
+                max_results=settings.web_search_max_results,
+            )
+            self.research_coordinator = ResearchCoordinator(
+                search_provider,
+                FetchPageService(
+                    timeout_s=settings.web_search_timeout_s,
+                    max_response_bytes=settings.web_search_max_response_bytes,
+                ),
+                max_sources=min(settings.web_search_max_results, 8),
+            )
         self.ctx = ToolContext(
-            self.jail, settings, self.state, ui, self.audit, self.policy, self.policy_engine, self.repomap, self.lsp
+            self.jail,
+            settings,
+            self.state,
+            ui,
+            self.audit,
+            self.policy,
+            self.policy_engine,
+            self.repomap,
+            self.lsp,
+            self.research_coordinator,
         )
         self.orchestrator: AgentOrchestrator | None = None
 

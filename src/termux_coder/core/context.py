@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+
 
 
 @dataclass
@@ -11,6 +13,8 @@ class SessionState:
     # سجل التعديلات: قائمة من dict بدلاً من list[str]
     applied_patches: list[dict] = field(default_factory=list)
     todos: list = field(default_factory=list)
+    research_intent: dict[str, Any] | None = None
+    research_packet: dict[str, Any] | None = None
 
 
 def build_system_prompt(workspace: str, security_mode: str) -> str:

@@ -38,11 +38,22 @@ class SessionStore:
                 session_id TEXT PRIMARY KEY,
                 read_files TEXT,
                 applied_patches TEXT,
-                todos TEXT
+                todos TEXT,
+                research_intent TEXT,
+                research_packet TEXT
             );
             """
         )
+        self._ensure_state_column("research_intent")
+        self._ensure_state_column("research_packet")
         self.conn.commit()
+
+    def _ensure_state_column(self, column: str) -> None:
+        columns = {
+            row[1] for row in self.conn.execute("PRAGMA table_info(state)").fetchall()
+        }
+        if column not in columns:
+            self.conn.execute(f"ALTER TABLE state ADD COLUMN {column} TEXT")
 
     # ── جلسات ─────────────────────────────────────────────
     def create(self, workspace: str, model: str, title: str = "") -> str:
@@ -125,20 +136,24 @@ class SessionStore:
         # احتفظ بآخر 50 ترقيع فقط تفادياً لتراكم البيانات
         patches_to_save = state.applied_patches[-50:] if state.applied_patches else []
         self.conn.execute(
-            "INSERT OR REPLACE INTO state (session_id, read_files, applied_patches, todos) "
-            "VALUES (?,?,?,?)",
+            "INSERT OR REPLACE INTO state "
+            "(session_id, read_files, applied_patches, todos, research_intent, research_packet) "
+            "VALUES (?,?,?,?,?,?)",
             (
                 sid,
                 json.dumps(sorted(state.read_files)),
                 json.dumps(patches_to_save),
                 json.dumps(state.todos),
+                json.dumps(state.research_intent) if state.research_intent is not None else None,
+                json.dumps(state.research_packet) if state.research_packet is not None else None,
             ),
         )
         self.conn.commit()
 
     def load_state(self, sid: str) -> SessionState | None:
         cur = self.conn.execute(
-            "SELECT read_files, applied_patches, todos FROM state WHERE session_id=?",
+            "SELECT read_files, applied_patches, todos, research_intent, research_packet "
+            "FROM state WHERE session_id=?",
             (sid,),
         )
         r = cur.fetchone()
@@ -157,6 +172,8 @@ class SessionStore:
             read_files=set(json.loads(r[0] or "[]")),
             applied_patches=migrated_patches,
             todos=json.loads(r[2] or "[]"),
+            research_intent=json.loads(r[3]) if r[3] else None,
+            research_packet=json.loads(r[4]) if r[4] else None,
         )
 
     def close(self) -> None:
