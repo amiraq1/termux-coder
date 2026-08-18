@@ -102,6 +102,38 @@ class TurnResult:
 # AgentOrchestrator
 # ══════════════════════════════════════════════════════════════
 
+CURRENT_DOC_MARKERS = (
+    "latest docs",
+    "latest documentation",
+    "latest api",
+    "latest library docs",
+    "latest library documentation",
+    "current docs",
+    "current documentation",
+    "up-to-date docs",
+    "up-to-date documentation",
+    "recent docs",
+    "recent documentation",
+    "official docs",
+    "official documentation",
+    "python documentation",
+    "search the docs",
+    "search documentation",
+    "api docs",
+    "new api",
+    "أحدث التوثيق",
+    "أحدث الوثائق",
+    "الوثائق الحالية",
+    "التوثيق الرسمي",
+    "آخر إصدار",
+)
+
+
+def requires_current_docs(user_text: str) -> bool:
+    lowered = user_text.casefold()
+    return any(marker in lowered for marker in CURRENT_DOC_MARKERS)
+
+
 class AgentOrchestrator:
     """
     منسّق الوكيل — آلة حالات صريحة.
@@ -594,19 +626,7 @@ class AgentOrchestrator:
         if time.monotonic() >= deadline:
             return False, "research deadline exceeded"
 
-        lowered = user_text.lower()
-        markers = (
-            "latest",
-            "current",
-            "up-to-date",
-            "new api",
-            "recent docs",
-            "أحدث",
-            "حديثة",
-            "آخر إصدار",
-            "الوثائق الحالية",
-        )
-        if not any(marker in lowered for marker in markers):
+        if not requires_current_docs(user_text):
             return True, None
 
         intent = TaskIntent(
