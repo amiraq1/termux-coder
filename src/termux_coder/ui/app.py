@@ -27,6 +27,10 @@ class ChatFeed(VerticalScroll):
     pass
 
 
+class WelcomeCard(Static):
+    """بطاقة بداية مختصرة بدل شاشة فارغة على الهاتف."""
+
+
 class TextualUI(AgentUI):
     def __init__(self, app: "TermuxCoderApp"):
         self.app = app
@@ -34,6 +38,8 @@ class TextualUI(AgentUI):
         self._t0 = time.time()
         self._stream_widget: Static | None = None
         self._last_flush = 0.0
+        self._read_files = 0
+        self._read_lines = 0
 
     def _put(self, widget) -> None:
         feed = self.app.query_one("#feed", ChatFeed)
@@ -77,6 +83,7 @@ class TextualUI(AgentUI):
             self._last_flush = time.monotonic()
 
     async def on_event(self, kind: str, **payload) -> None:
+        self.app.set_phase(kind, payload)
         if kind == "turn_start":
             self._buf = []
             self._t0 = time.time()
@@ -134,8 +141,14 @@ class TextualUI(AgentUI):
             )
 
         elif kind == "read_ok":
+            self._read_files += 1
+            self._read_lines += int(payload.get("lines", 0))
+            self.app.update_activity(
+                "READ",
+                f"{self._read_files} files · {self._read_lines} lines",
+            )
             self._put(
-                Static(tool_line("READ", payload["path"], f"{payload['lines']} lines"))
+                Static(tool_line("READ", payload["path"], f"{payload['lines']} lines"), markup=False)
             )
 
         elif kind == "patch_applied":
@@ -201,6 +214,8 @@ class TextualUI(AgentUI):
             )
             self._put(Static(Text(text, style=theme.DIM)))
 
+        elif kind == "tool_start":
+            self._put(Static(tool_line("TOOL", payload.get("tool", ""), "running"), markup=False))
         elif kind == "shell_done":
             self._put(Static(tool_line("SHELL", payload["command"])))
             lines = payload["output"].splitlines()
@@ -249,6 +264,7 @@ class TextualUI(AgentUI):
             self._put(Static(Text("stopped: too many tool rounds", style="yellow")))
 
         elif kind == "turn_end":
+            self.app.set_phase("turn_end", {})
             self.app.set_busy(False)
 
     async def request_approval(self, kind: str, payload: dict) -> bool:
@@ -270,17 +286,23 @@ class TermuxCoderApp(App):
         Binding("shift+tab", "toggle_mode", "mode", show=True),
         Binding("ctrl+o", "toggle_expand", "expand", show=True),
         Binding("ctrl+t", "toggle_tree", "tree", show=True),
+        Binding("ctrl+p", "focus_prompt", "prompt", show=True),
     ]
     CSS = """
-    Screen { background: #000000; }
+    Screen { background: #07090d; color: #e7e9ee; }
     Horizontal { height: 1fr; }
-    DirectoryTree { width: 30; display: none; }
-    DirectoryTree.-visible { display: block; }
-    #maincol { width: 1fr; }
-    ChatFeed { height: 1fr; padding: 0 1; }
-    #status { height: 1; margin: 0 1; }
-    Input { margin: 0 1; }
-    #modeline { height: 2; margin: 0 1; }
+    #tree { width: 32; display: none; background: #0e1218; border: tall #232a36; }
+    #tree.-visible { display: block; }
+    #maincol { width: 1fr; min-width: 0; }
+    #header { height: 2; padding: 0 1; background: #111722; color: #c8d0de; border-bottom: solid #2b3850; }
+    ChatFeed { height: 1fr; padding: 1 1; scrollbar-size: 1 1; }
+    #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
+    #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
+    #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
+    Input { margin: 0 1; border: tall #456fa8; background: #11151c; }
+    #modeline { height: 2; margin: 0 1; padding: 0 1; color: #9aa6b8; }
+    Footer { background: #0d1118; }
+    .diff { overflow-x: auto; }
     """
 
     def __init__(self, agent: Agent, settings=None, store=None):
@@ -292,19 +314,24 @@ class TermuxCoderApp(App):
         self._busy = False
         self._verb = 0
         self._expandables: list[ExpandableStatic] = []
+        self._phase = "READY"
+        self._activity = "waiting for your request"
 
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield DirectoryTree(str(self.agent.jail.root), id="tree")
             with Vertical(id="maincol"):
+                yield Static(id="header")
                 yield ChatFeed(id="feed")
+                yield Static(id="activity")
                 yield Static(id="status")
-                yield Input(id="prompt", placeholder="Ask your question...")
+                yield Input(id="prompt", placeholder="Ask your question…")
                 yield Static(id="modeline")
         yield Footer()
 
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
+        self._render_header()
         intro = Text()
         intro.append("◈ agent\n", style=f"bold {theme.TEAL}")
         intro.append(
@@ -313,7 +340,16 @@ class TermuxCoderApp(App):
             f"security: {self.agent.settings.security_mode}\n",
             style=theme.DIM,
         )
-        feed.mount(Static(intro))
+        feed.mount(WelcomeCard(
+            "◈ agent\n\n"
+            "ابدأ بطلب واضح، مثل:\n"
+            "  • حلّل بنية المشروع\n"
+            "  • اقرأ ملفًا واشرحه\n"
+            "  • اقترح تعديلًا واعرض المعاينة\n"
+            "  • شغّل التحقق بعد الموافقة",
+            id="welcome",
+        ))
+        feed.mount(Static(intro, markup=False))
         feed.mount(
             Static(
                 tool_line(
@@ -324,6 +360,7 @@ class TermuxCoderApp(App):
             )
         )
         self._render_modeline()
+        self.update_activity("READY", "waiting for your request")
         self._render_status()
         self.set_interval(1.6, self._tick)
 
@@ -335,6 +372,42 @@ class TermuxCoderApp(App):
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
         self._render_status()
+
+    def set_phase(self, kind: str, payload: dict) -> None:
+        labels = {
+            "turn_start": "THINKING",
+            "round_start": "PLANNING",
+            "tool_start": "EXECUTING",
+            "approval_requested": "AWAITING APPROVAL",
+            "verification_start": "VERIFYING",
+            "verification_result": f"VERIFY {payload.get('status', '')}",
+            "turn_end": "READY",
+        }
+        self._phase = labels.get(kind, self._phase)
+        detail = payload.get("tool", payload.get("reason", ""))
+        self.update_activity(self._phase, detail)
+        self._render_status()
+
+    def update_activity(self, label: str, detail: str = "") -> None:
+        self._activity = f"{label} · {detail}" if detail else label
+        try:
+            self.query_one("#activity", Static).update(
+                Text(self._activity, style=theme.DIM)
+            )
+        except Exception:
+            pass
+
+    def _render_header(self) -> None:
+        project = self.agent.jail.root.name or str(self.agent.jail.root)
+        text = Text()
+        text.append("◈ agent", style=f"bold {theme.TEAL}")
+        text.append(f"  ·  {project}", style=theme.WHITE)
+        text.append(f"  ·  {self.agent.settings.model}", style=theme.DIM)
+        text.append(
+            f"  ·  {self.agent.settings.security_mode}",
+            style=f"bold {theme.ORANGE}",
+        )
+        self.query_one("#header", Static).update(text)
 
     def register_expandable(self, widget: ExpandableStatic) -> None:
         self._expandables.append(widget)
@@ -349,10 +422,13 @@ class TermuxCoderApp(App):
     def _render_status(self) -> None:
         if self._busy:
             verb = theme.VERBS[self._verb % len(theme.VERBS)]
-            t = Text(f" ◇ {verb}… ", style="bold #cfc3f7 on #2a2440")
+            t = Text(
+                f" ◇ {self._phase} · {verb}… ",
+                style="bold #cfc3f7 on #2a2440",
+            )
         else:
-            t = Text(f" ◈ idle ", style=f"bold {theme.TEAL} on #0d2b27")
-        t.append(f" {self._tokens / 1000:.1f}k", style=theme.DIM)
+            t = Text(" ◈ READY ", style=f"bold {theme.TEAL} on #0d2b27")
+        t.append(f" · {self._tokens / 1000:.1f}k", style=theme.DIM)
         self.query_one("#status", Static).update(t)
 
     def _render_modeline(self) -> None:
@@ -376,6 +452,9 @@ class TermuxCoderApp(App):
 
     def action_toggle_tree(self) -> None:
         self.query_one("#tree").toggle_class("-visible")
+
+    def action_focus_prompt(self) -> None:
+        self.query_one("#prompt", Input).focus()
 
     # ── الدورة ─────────────────────────────────────────────
     def on_input_submitted(self, event: Input.Submitted) -> None:
