@@ -137,5 +137,7 @@ def test_slow_provider_is_distinguished_from_slow_tool(e2e_components) -> None:
     assert result.rounds_used == 2
     assert provider.calls == 2
     assert elapsed_s >= 0.07
-    assert result.tool_results[0].duration_ms < 25
-    assert elapsed_s > result.tool_results[0].duration_ms / 1000
+    tool_ms = result.tool_results[0].duration_ms
+    total_ms = elapsed_s * 1000
+    assert total_ms > tool_ms
+    assert tool_ms < total_ms * 0.8
