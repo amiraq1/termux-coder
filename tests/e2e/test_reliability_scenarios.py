@@ -34,8 +34,19 @@ def test_read_search_and_workspace_boundary(e2e_components):
             content.encode("utf-8")
         ).hexdigest()
 
+        generated_dir = components["workspace"] / ".termux_coder" / "backups"
+        generated_dir.mkdir(parents=True)
+        (generated_dir / "main.py.bak").write_text("greet", encoding="utf-8")
+        (components["workspace"] / "run.log").write_text("greet", encoding="utf-8")
+        (components["workspace"] / ".termux_coder" / "audit.jsonl").write_text(
+            "greet", encoding="utf-8"
+        )
+
         matches = await fs.search_text(fs.SearchTextArgs(query="greet", path="."), ctx)
         assert "main.py" in matches
+        assert "run.log" not in matches
+        assert ".termux_coder" not in matches
+        assert ".bak" not in matches
 
         with pytest.raises(JailViolation):
             await fs.read_file(fs.ReadFileArgs(path="/etc/passwd"), ctx)

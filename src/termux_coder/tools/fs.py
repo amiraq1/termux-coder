@@ -109,6 +109,9 @@ async def search_text(args: SearchTextArgs, ctx) -> str:
     cmd = [
         "grep", "-RIn",
         "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=.venv",
+        "--exclude-dir=.termux_coder", "--exclude-dir=.cache", "--exclude-dir=__pycache__",
+        "--exclude=*.log", "--exclude=*.bak", "--exclude=*.pyc",
+        "--exclude=audit.jsonl",
         "--", query, str(root),
     ]
     proc = await asyncio.to_thread(
