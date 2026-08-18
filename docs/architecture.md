@@ -58,6 +58,8 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `ResilientWebSearchProvider` | Adds bounded retries, TTL cache, circuit breaker, and health metadata | Read-only wrapper; does not alter policy decisions |
 | `DoctorRunner` | Runs isolated local diagnostics and returns a structured report | Does not execute verification commands or live network probes in P4.4a |
 | `DoctorReport` | Serializes scrubbed human/JSON diagnostic output with exit semantics | Warnings pass; errors/timeouts fail |
+| `DoctorCheckRegistry` | Registers and runs explicit local checks with per-check timeout | No dynamic discovery; checks must be side-effect free |
+| `CheckSpec` | Names a check, category, callable, and bounded timeout | Timeout max 30s; timeout is observation isolation, not a process sandbox |
 
 ## Research Contracts
 
@@ -111,7 +113,7 @@ PatchPlan.plan_id + audit metadata
 
 ## Doctor Boundary
 
-`termux-coder doctor` runs local diagnostics through `DoctorRunner`. It checks Python dependencies, required binaries, policy configuration, workspace jail, secret scrubbing, audit persistence, verification configuration parsing, SQLite session storage, and provider health metadata. It does not execute `.termux-coder.toml` verification commands and does not perform live network probes in P4.4a. `--json` serializes a versioned `DoctorReport` after scrubbing; `--verbose` adds scrubbed details. A warning or skipped check does not fail the command, while an error or timeout returns exit code 1.
+`termux-coder doctor` runs local diagnostics through `DoctorRunner` and `DoctorCheckRegistry`. It checks Python dependencies, required binaries, policy configuration, workspace jail, secret scrubbing, audit persistence, verification configuration parsing, SQLite session storage, and provider health metadata. The registry accepts only explicit `CheckSpec` entries and executes each check with a bounded timeout. A timed-out Python thread cannot be force-killed, so checks must remain local and side-effect free. Doctor does not execute `.termux-coder.toml` verification commands and does not perform live network probes in P4.4a. `--json` serializes a versioned `DoctorReport` after scrubbing; `--verbose` adds scrubbed details. A warning or skipped check does not fail the command, while an error or timeout returns exit code 1.
 
 ## Web Search Boundary
 

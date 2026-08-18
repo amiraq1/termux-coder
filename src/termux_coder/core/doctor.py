@@ -6,10 +6,9 @@ import sqlite3
 import sys
 import tempfile
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Literal
 
 from ..config import Settings
 from ..security.audit import AuditLog
@@ -19,23 +18,8 @@ from ..security.scrubber import scrub
 from ..tools.duckduckgo import DuckDuckGoProvider
 from ..tools.official_docs import OfficialDocsProvider
 from ..tools.resilient_provider import ResilientWebSearchProvider
+from .doctor_checks import CheckResult, CheckSpec, CheckStatus, DoctorCheckRegistry
 from .verification import VerificationRunner
-
-
-CheckStatus = Literal["ok", "warning", "error", "timeout", "skipped"]
-
-
-@dataclass(frozen=True)
-class CheckResult:
-    name: str
-    category: str
-    status: CheckStatus
-    message: str
-    details: dict[str, object]
-    duration_ms: int
-
-    def as_dict(self) -> dict[str, object]:
-        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -93,20 +77,6 @@ class DoctorRunner:
     def __init__(self, settings: Settings, *, version: str = "unknown") -> None:
         self.settings = settings
         self.version = version
-
-    @staticmethod
-    def _run_check(
-        name: str,
-        category: str,
-        check: Callable[[], tuple[CheckStatus, str, dict[str, object]]],
-    ) -> CheckResult:
-        started = time.monotonic()
-        try:
-            status, message, details = check()
-        except Exception as exc:
-            status, message, details = "error", "check failed", {"error": scrub(str(exc))}
-        duration_ms = int((time.monotonic() - started) * 1000)
-        return CheckResult(name, category, status, scrub(message), scrub(details), duration_ms)
 
     def _python(self) -> tuple[CheckStatus, str, dict[str, object]]:
         version = sys.version_info
@@ -228,20 +198,24 @@ class DoctorRunner:
             "network_probe": "not run; use a future explicit network flag",
         }
 
-    def run(self) -> DoctorReport:
-        checks = (
-            ("python", "environment", self._python),
-            ("dependencies", "environment", self._dependencies),
-            ("binaries", "environment", self._binaries),
-            ("policy", "security", self._policy),
-            ("workspace", "security", self._workspace),
-            ("secret_scrubber", "security", self._scrubber),
-            ("audit_log", "security", self._audit),
-            ("verification_config", "verification", self._verification),
-            ("session_storage", "data", self._sessions),
-            ("provider_health", "network", self._provider_health),
+    def registry(self) -> DoctorCheckRegistry:
+        return DoctorCheckRegistry(
+            (
+                CheckSpec("python", "environment", self._python),
+                CheckSpec("dependencies", "environment", self._dependencies),
+                CheckSpec("binaries", "environment", self._binaries),
+                CheckSpec("policy", "security", self._policy),
+                CheckSpec("workspace", "security", self._workspace),
+                CheckSpec("secret_scrubber", "security", self._scrubber),
+                CheckSpec("audit_log", "security", self._audit),
+                CheckSpec("verification_config", "verification", self._verification),
+                CheckSpec("session_storage", "data", self._sessions),
+                CheckSpec("provider_health", "network", self._provider_health),
+            )
         )
-        results = tuple(self._run_check(name, category, check) for name, category, check in checks)
+
+    def run(self) -> DoctorReport:
+        results = self.registry().run_all()
         return DoctorReport(
             schema_version=1,
             timestamp=datetime.now(timezone.utc).isoformat(),

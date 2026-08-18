@@ -1,8 +1,12 @@
 import json
 import re
+import time
+
+import pytest
 
 from termux_coder.config import Settings
 from termux_coder.core.doctor import DoctorRunner, run_doctor
+from termux_coder.core.doctor_checks import CheckSpec, DoctorCheckRegistry
 
 
 ARABIC = re.compile(r"[\u0600-\u06ff]")
@@ -69,3 +73,50 @@ def test_doctor_scrubs_sensitive_details(tmp_path):
 
     assert "doctor-secret" not in serialized
     assert "[REDACTED]" in serialized
+
+
+def test_check_spec_rejects_invalid_timeout():
+    with pytest.raises(ValueError, match="at most 30"):
+        CheckSpec("too_slow", "test", lambda: ("ok", "", {}), timeout_s=31)
+
+
+def test_registry_rejects_duplicate_names():
+    registry = DoctorCheckRegistry()
+    spec = CheckSpec("same", "test", lambda: ("ok", "first", {}))
+    registry.register(spec)
+
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register(spec)
+
+
+def test_registry_times_out_one_check_and_continues():
+    def slow_check():
+        time.sleep(0.05)
+        return "ok", "too late", {}
+
+    registry = DoctorCheckRegistry(
+        (
+            CheckSpec("slow", "test", slow_check, timeout_s=0.01),
+            CheckSpec("after", "test", lambda: ("ok", "still ran", {}), timeout_s=0.1),
+        )
+    )
+
+    results = registry.run_all()
+
+    assert results[0].status == "timeout"
+    assert results[1].status == "ok"
+
+
+def test_registry_isolates_exception_and_scrubs_error():
+    def failing_check():
+        raise RuntimeError("api_key=doctor-secret")
+
+    registry = DoctorCheckRegistry(
+        (CheckSpec("failing", "test", failing_check),)
+    )
+
+    result = registry.run_all()[0]
+
+    assert result.status == "error"
+    assert result.message == "check failed"
+    assert "doctor-secret" not in str(result.details)
