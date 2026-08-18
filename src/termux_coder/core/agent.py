@@ -155,8 +155,17 @@ class Agent:
         )
         self.orchestrator: AgentOrchestrator | None = None
 
+    def _clear_turn_research_context(self) -> None:
+        """Drop research-only messages and active evidence between turns."""
+        self.messages[:] = [
+            message for message in self.messages if not message.get("_ephemeral", False)
+        ]
+        self.state.research_intent = None
+        self.state.research_packet = None
+
     async def _run_turn_orchestrated(self, user_text: str) -> None:
         """مسار P2 التجريبي؛ يحافظ على عقد الجلسة ويستخدم المسار القديم كخطة تراجع."""
+        self._clear_turn_research_context()
         user_message = {"role": "user", "content": user_text}
         self.messages.append(user_message)
         self._persist(user_message)
@@ -210,6 +219,7 @@ class Agent:
                     error=result.error or "",
                 )
         finally:
+            self._clear_turn_research_context()
             # Always release the TUI busy state, including failure and cancellation.
             await self.ui.on_event("turn_end")
 

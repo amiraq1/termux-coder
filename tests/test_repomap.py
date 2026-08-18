@@ -47,3 +47,21 @@ def test_cache_no_rebuild(tmp_path):
     assert rm.changed
     rm.render_budget()
     assert not rm.changed  # نفس التوقيع → لا إعادة فحص
+
+
+def test_reports_python_syntax_errors(tmp_path):
+    (tmp_path / "main.py").write_text("def greet(name):\nreturn name\n")
+    rm = RepoMap(WorkspaceJail(tmp_path))
+    rendered = rm.render_full(focus="main.py")
+    assert "Diagnostics:" in rendered
+    assert "main.py: syntax error" in rendered
+    assert rm.last_stats["symbols"] == 0
+    assert rm.last_stats["parse_errors"] == 1
+
+
+def test_valid_python_map_reports_parse_error_count_zero(tmp_path):
+    (tmp_path / "main.py").write_text("def greet(name):\n    return name\n")
+    rm = RepoMap(WorkspaceJail(tmp_path))
+    rendered = rm.render_full(focus="main.py")
+    assert "def greet" in rendered
+    assert rm.last_stats["parse_errors"] == 0

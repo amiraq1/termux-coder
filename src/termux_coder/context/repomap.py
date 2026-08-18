@@ -61,6 +61,7 @@ class RepoMap:
         self.changed = False
         self._sig: int | None = None
         self._symbols: list[tuple[str, str, str, int, int]] = []
+        self._parse_errors: list[tuple[str, str]] = []
 
     # ── جمع الملفات ────────────────────────────────────────
     def _collect_files(self) -> list[Path]:
@@ -142,6 +143,7 @@ class RepoMap:
             return
         self._sig = sig
         self.changed = True
+        self._parse_errors = []
 
         root = self.jail.root
         texts: dict[Path, str] = {}
@@ -156,8 +158,17 @@ class RepoMap:
                 continue
             texts[p] = text
             lang = EXT_LANG[p.suffix]
-            syms = self._py_symbols(text) if lang == "python" else self._generic_symbols(lang, text)
             rel = p.relative_to(root).as_posix()
+            if lang == "python":
+                try:
+                    ast.parse(text)
+                except SyntaxError as exc:
+                    location = f"line {exc.lineno}" if exc.lineno else "unknown line"
+                    self._parse_errors.append((rel, f"syntax error at {location}"))
+                    continue
+                syms = self._py_symbols(text)
+            else:
+                syms = self._generic_symbols(lang, text)
             raw.extend((rel, kind, name, line) for kind, name, line in syms)
 
         # ترتيب بالمرجعية: عدّ الاستشهادات عبر المشروع كله
@@ -178,7 +189,11 @@ class RepoMap:
             scored.append((rel, kind, name, line, score))
 
         self._symbols = scored
-        self.last_stats = {"files": len(texts), "symbols": len(scored)}
+        self.last_stats = {
+            "files": len(texts),
+            "symbols": len(scored),
+            "parse_errors": len(self._parse_errors),
+        }
 
     # ── العرض ──────────────────────────────────────────────
     def _sorted_symbols(self):
@@ -216,4 +231,9 @@ class RepoMap:
                 break
             out.append(text)
             used += cost
+        if self._parse_errors:
+            if out:
+                out.append("")
+            out.append("Diagnostics:")
+            out.extend(f"  {path}: {message}" for path, message in self._parse_errors)
         return "\n".join(out)

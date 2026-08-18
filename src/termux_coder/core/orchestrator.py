@@ -177,9 +177,9 @@ class AgentOrchestrator:
         )
 
     def _append_message(self, messages: list[dict], message: dict) -> None:
-        """أضف رسالة إلى تاريخ الدورة واحفظها فورًا عند توفر sink."""
+        """Append a message and persist it unless it is explicitly ephemeral."""
         messages.append(message)
-        if self._message_sink is not None:
+        if self._message_sink is not None and not message.get("_ephemeral", False):
             self._message_sink(message)
 
     # ── تقييم السياسة ────────────────────────────────────────
@@ -703,6 +703,7 @@ class AgentOrchestrator:
                     f"{packet_content}\n"
                     "</research_evidence>"
                 ),
+                "_ephemeral": True,
             },
         )
         self.audit.log(
