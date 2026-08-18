@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 import subprocess
 from pydantic import BaseModel, ConfigDict
 
@@ -23,12 +24,23 @@ async def run_command(args: RunCommandArgs, ctx) -> str:
     if not ctx.policy.command_allowed_at_all():
         return "run_command disabled (security=READONLY)"
 
+    auto_verification = (
+        getattr(ctx.policy, "mode", "ASK") == "GRANULAR"
+        and ctx.policy.is_auto_verification(command)
+    )
+
     if ctx.policy.is_blocked(command):
         ctx.audit.log("command_blocked", command=command)
         return "command blocked by policy"
 
     if ctx.policy.requires_approval(command) and not getattr(ctx, "orchestrator_approval_granted", False):
-        approved = await ctx.ui.request_approval("command", {"command": command})
+        approved = await ctx.ui.request_approval(
+            "command",
+            {
+                "command": command,
+                "risk": "low" if auto_verification else "high",
+            },
+        )
         ctx.audit.log("command_approval", command=command, approved=approved, source="tool")
         if not approved:
             return "user rejected the command"
@@ -36,10 +48,17 @@ async def run_command(args: RunCommandArgs, ctx) -> str:
         ctx.audit.log("command_approval", command=command, approved=True, source="orchestrator")
 
     try:
+        argv = shlex.split(command, posix=True)
+    except ValueError as exc:
+        return f"invalid command syntax: {exc}"
+    if not argv:
+        return "empty command"
+
+    try:
         proc = await asyncio.to_thread(
             subprocess.run,
-            command,
-            shell=True,
+            argv,
+            shell=False,
             cwd=ctx.jail.root,
             capture_output=True,
             text=True,

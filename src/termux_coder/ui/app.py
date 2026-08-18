@@ -310,6 +310,8 @@ class TextualUI(AgentUI):
         else:
             title = "Run command?"
             body = payload.get("command", "")
+        risk = str(payload.get("risk", "medium")).upper()
+        body = f"Risk: {risk}\n\n{body}"
         return await self.app.push_screen_wait(ApprovalScreen(title, body))
 
 

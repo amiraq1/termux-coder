@@ -10,6 +10,9 @@ def _env(name: str, default: str) -> str:
     return os.environ.get(f"TERMUX_CODER_{name}", os.environ.get(name, default))
 
 
+SUPPORTED_SECURITY_MODES = frozenset({"ASK", "READONLY", "GRANULAR", "AUTO"})
+
+
 @dataclass
 class Settings:
     workspace: Path = field(default_factory=lambda: Path(_env("WORKSPACE", ".")))
@@ -19,7 +22,7 @@ class Settings:
     )
     model: str = field(default_factory=lambda: _env("MODEL", "gpt-4o-mini"))
 
-    # ASK | READONLY | AUTO  (AUTO غير افتراضي ولا يُنصح به على الهاتف)
+    # ASK | READONLY | GRANULAR | AUTO (AUTO غير افتراضي ولا يُنصح به على الهاتف)
     security_mode: str = field(default_factory=lambda: _env("SECURITY", "ASK"))
 
     command_timeout: int = field(default_factory=lambda: int(_env("COMMAND_TIMEOUT", "120")))
@@ -61,6 +64,12 @@ class Settings:
     verification_max_repair_attempts: int = field(
         default_factory=lambda: int(_env("VERIFICATION_MAX_REPAIRS", "3"))
     )
+
+    def __post_init__(self) -> None:
+        self.security_mode = self.security_mode.upper()
+        if self.security_mode not in SUPPORTED_SECURITY_MODES:
+            allowed = ", ".join(sorted(SUPPORTED_SECURITY_MODES))
+            raise ValueError(f"unsupported security mode {self.security_mode!r}; choose one of {allowed}")
 
     @property
     def state_dir(self) -> Path:

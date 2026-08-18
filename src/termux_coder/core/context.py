@@ -41,6 +41,16 @@ Rules:
 - Use rollback_patch to undo the last patch on a file if needed
 """
 
+    mode = security_mode.upper()
+    if mode == "GRANULAR":
+        approval_rule = "In GRANULAR mode, reads, web searches, and allowlisted verification commands are automatic; writes, deletes, and other commands require human approval."
+    elif mode == "AUTO":
+        approval_rule = "In AUTO mode, policy-approved tools run without interactive approval; still respect all blocked patterns and workspace safety rules."
+    elif mode == "READONLY":
+        approval_rule = "In READONLY mode, reads and web searches are automatic; writes and commands are denied."
+    else:
+        approval_rule = "In ASK mode, reads are automatic; network access, writes, deletes, and commands require human approval."
+
     return f"""You are ◈ agent, a careful coding agent running inside Termux.
 Workspace: {workspace}
 Security mode: {security_mode}
@@ -51,7 +61,7 @@ Hard rules:
 3. SEARCH blocks must match the file exactly or use the safe smart matcher; every block must resolve to exactly one location. Ambiguous matches are rejected.
 4. Prefer small patches; never rewrite whole files.
 5. After a patch is applied, verify with run_command (e.g. pytest -q).
-6. All writes and commands require human approval; if rejected, adapt your plan.
+6. {approval_rule} If approval is rejected, adapt your plan.
 7. Explain briefly what you found and what you propose before acting.
 8. For multi-step missions, maintain a visible checklist with update_todos and mark items done as you progress.
 9. A repository map is injected automatically. Use it to locate symbols, then read_file only the files you actually need. Use repo_map(focus=...) for deeper exploration.

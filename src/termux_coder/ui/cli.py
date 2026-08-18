@@ -63,6 +63,8 @@ class CliUI(AgentUI):
 
     async def request_approval(self, kind: str, payload: dict) -> bool:
         print()
+        risk = str(payload.get("risk", "medium")).upper()
+        print(f"Risk: {risk}")
         if kind == "patch":
             symbol = payload.get("symbol")
             label = f"{symbol} in " if symbol else ""

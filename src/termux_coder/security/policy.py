@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from enum import Enum
 from typing import NamedTuple
 
@@ -66,6 +67,7 @@ class PolicyDecision(NamedTuple):
     allowed: bool
     requires_approval: bool
     reason: str
+    risk: str = "medium"
 
 
 class CommandPolicy:
@@ -79,9 +81,27 @@ class CommandPolicy:
     def command_allowed_at_all(self) -> bool:
         return self.mode != "READONLY"
 
+    def is_auto_verification(self, command: str) -> bool:
+        """Allow only bounded verification commands in GRANULAR mode."""
+        try:
+            argv = shlex.split(command, posix=True)
+        except ValueError:
+            return False
+        if not argv or any(token in {"-c", "--command", "&&", "||", ";", "|"} for token in argv):
+            return False
+        if argv[0] in {"pytest", "ruff", "mypy", "pyright"}:
+            return True
+        return len(argv) >= 3 and argv[0] in {"python", "python3"} and argv[1] == "-m" and argv[2] in {
+            "pytest", "compileall", "unittest"
+        }
+
     def requires_approval(self, command: str) -> bool:
-        # AUTO فقط يتخطى الموافقة، وهو غير افتراضي
-        return self.mode != "AUTO"
+        # AUTO وعمليات التحقق المسموحة في GRANULAR فقط تتخطى الموافقة.
+        if self.mode == "AUTO":
+            return False
+        if self.mode == "GRANULAR" and self.is_auto_verification(command):
+            return False
+        return True
 
 
 class PolicyEngine:
@@ -100,7 +120,7 @@ class PolicyEngine:
         """أعد صلاحية الأداة من السجل الموثوق (لا من مدخلات خارجية)."""
         return TOOL_PERMISSIONS.get(tool_name)
 
-    def evaluate_tool(self, tool_name: str) -> PolicyDecision:
+    def evaluate_tool(self, tool_name: str, arguments: dict | None = None) -> PolicyDecision:
         """
         تقييم ما إذا كانت الأداة مسموحاً بها في الوضع الحالي.
         الصلاحية تُستخرج من TOOL_PERMISSIONS، لا تُمرَّر من الخارج.
@@ -121,18 +141,34 @@ class PolicyEngine:
                 reason=f"READONLY mode: '{tool_name}' requires {perm.value} permission",
             )
 
+        # GRANULAR: القراءة والبحث الشبكي تلقائيان، بينما الكتابة والحذف
+        # والأوامر العامة تحتاج موافقة. أوامر التحقق الآمنة تُقيّم أدناه.
+        if self.mode == "GRANULAR" and perm in {Permission.READ, Permission.NETWORK}:
+            return PolicyDecision(True, False, f"{perm.value}_auto_granular", "low")
+        if self.mode == "GRANULAR" and tool_name == "run_command":
+            command = str((arguments or {}).get("command", ""))
+            auto = self._cmd_policy.is_auto_verification(command)
+            return PolicyDecision(
+                True,
+                not auto,
+                "verification_auto_granular" if auto else "command_requires_approval",
+                "low" if auto else "high",
+            )
+
         # قراءة واتصالات الشبكة في READONLY لا تعدل مساحة العمل.
         if perm == Permission.READ:
-            return PolicyDecision(allowed=True, requires_approval=False, reason="read_ok")
+            return PolicyDecision(True, False, "read_ok", "low")
         if perm == Permission.NETWORK and self.mode == "READONLY":
-            return PolicyDecision(allowed=True, requires_approval=False, reason="network_read_ok")
+            return PolicyDecision(True, False, "network_read_ok", "low")
 
         # الكتابة والتنفيذ والبحث الشبكي في ASK تحتاج موافقة، وAUTO يتخطاها.
         needs_approval = self.mode != "AUTO"
+        risk = "high" if perm in {Permission.WRITE, Permission.EXECUTE} else "medium"
         return PolicyDecision(
-            allowed=True,
-            requires_approval=needs_approval,
-            reason=f"{perm.value}_requires_approval" if needs_approval else f"{perm.value}_auto",
+            True,
+            needs_approval,
+            f"{perm.value}_requires_approval" if needs_approval else f"{perm.value}_auto",
+            risk,
         )
 
     def evaluate_command(self, command: str) -> PolicyDecision:
@@ -154,4 +190,5 @@ class PolicyEngine:
             allowed=True,
             requires_approval=needs_approval,
             reason="command_auto" if not needs_approval else "command_requires_approval",
+            risk="low" if not needs_approval else "high",
         )

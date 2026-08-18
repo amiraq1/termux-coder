@@ -332,7 +332,11 @@ class Agent:
                         result = f"unknown tool: {name}"
                     else:
                         # فحص صلاحية الأداة من PolicyEngine، لا من مخرجات النموذج
-                        decision = self.policy_engine.evaluate_tool(name)
+                        try:
+                            policy_args = json.loads(call["function"]["arguments"] or "{}")
+                        except Exception:
+                            policy_args = {}
+                        decision = self.policy_engine.evaluate_tool(name, policy_args)
                         if not decision.allowed:
                             result = f"tool blocked by policy: {decision.reason}"
                             self.audit.log(

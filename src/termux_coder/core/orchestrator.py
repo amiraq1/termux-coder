@@ -189,7 +189,7 @@ class AgentOrchestrator:
         تقييم استدعاء أداة ضد السياسة.
         الصلاحية تأتي من TOOL_PERMISSIONS، لا من النموذج.
         """
-        decision_raw = self.policy_engine.evaluate_tool(call.name)
+        decision_raw = self.policy_engine.evaluate_tool(call.name, call.arguments)
 
         if not decision_raw.allowed:
             # DENY نهائي — لا يتحول إلى REQUIRE_APPROVAL
@@ -931,6 +931,7 @@ class AgentOrchestrator:
                             "tool": e.call.name,
                             "arguments": e.call.arguments,
                             "fingerprint": e.call.arguments_fingerprint[:16],
+                            "risk": "high" if e.call.name not in self._research_tools else "medium",
                         } for e in needs_approval],
                     )
                     # اطلب موافقة الواجهة إن كان المسار التفاعلي موصولًا.
@@ -938,7 +939,10 @@ class AgentOrchestrator:
                         for ecall in needs_approval:
                             approved = await self._approval_handler(
                                 self._approval_kind(ecall.call.name),
-                                self._approval_payload(ecall),
+                                {
+                                    **self._approval_payload(ecall),
+                                    "risk": "high" if ecall.call.name not in self._research_tools else "medium",
+                                },
                             )
                             if approved:
                                 self.grant_approval(ecall.call.call_id)

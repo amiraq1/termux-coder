@@ -24,7 +24,7 @@
 | OPENAI_API_KEY | TERMUX_CODER_OPENAI_API_KEY | EMPTY |
 | OPENAI_BASE_URL | TERMUX_CODER_OPENAI_BASE_URL | openai |
 | MODEL | TERMUX_CODER_MODEL | gpt-4o-mini |
-| SECURITY | — | ASK (أو READONLY / AUTO) |
+| SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
 | TERMUX_CODER_ORCHESTRATOR | — | 0 |
@@ -58,9 +58,23 @@
 
 - Workspace Jail: resolve + is_relative_to (لا startswith).
 - لا write_file: التعديل فقط عبر apply_patch بعد read_file.
-- كل كتابة/أمر/commit/restore يمر بنافذة موافقة (وضع ASK).
+- في وضع ASK: القراءة تلقائية، بينما الشبكة والكتابة والأوامر وعمليات Git تطلب موافقة.
+- في وضع GRANULAR: القراءة والبحث الشبكي وأوامر التحقق المسموح بها (`pytest` و`ruff` و`mypy` و`pyright` و`python -m pytest/compileall/unittest`) تعمل تلقائيًا؛ التعديل والحذف والأوامر العامة تطلب موافقة، والأنماط الخطرة مرفوضة دائمًا.
+- في وضع READONLY: القراءة والبحث مسموحان، والكتابة والتنفيذ مرفوضان. وضع AUTO يتجاوز الموافقة وهو غير موصى به على الهاتف.
 - نسخ احتياطية في .termux_coder/backups + تدقيق في audit.jsonl.
 - Git discipline: checkpoint قبل المهام، commit ببادئة "agent:".
+
+### تشغيل السياسة المتدرجة
+
+لتمكين التشغيل التلقائي الآمن للقراءة والبحث والتحقق فقط، استخدم:
+
+```sh
+export SECURITY=GRANULAR
+export TERMUX_CODER_ORCHESTRATOR=1
+termux-coder --workspace ~/my-project
+```
+
+يبقى Safe Preview والموافقة وRollback مطلوبة قبل أي تعديل، بينما لا تؤدي موافقة الأداة إلى تجاوز Workspace Jail أو الأنماط المحظورة.
 
 ## البحث عبر الإنترنت والمعرفة الموثقة
 

@@ -42,7 +42,7 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `Agent` | Runs the model/tool loop and connects UI, provider, context, and registry | Does not bypass tool validation |
 | `AgentOrchestrator` | Enforces state transitions, approvals, execution, and verification | Rejects invalid transitions and stale approvals |
 | `ToolRegistry` | Validates tool arguments with Pydantic and invokes handlers | `extra="forbid"` contracts |
-| `PolicyEngine` | Maps tools to fixed permissions and evaluates decisions | The model cannot choose permissions |
+| `PolicyEngine` | Maps tools to fixed permissions and evaluates decisions, including GRANULAR risk | The model cannot choose permissions or bypass approvals |
 | `WorkspaceJail` | Constrains file access to the workspace | Prevents path escape and unsafe file access |
 | `PatchPreviewService` | Builds diffs and source/result fingerprints | Preview precedes mutation |
 | `PatchPlan` | Applies related file changes as one transaction | Full rollback on failure |
@@ -104,7 +104,7 @@ PatchPlan.plan_id + audit metadata
 
 ## Web Search Boundary
 
-`web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands.
+`web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands. In `GRANULAR` mode, web search and page fetch are automatic because they are read-only network operations; they never grant permission to mutate files.
 
 The current web knowledge path is:
 
@@ -137,7 +137,8 @@ The boundaries are as follows:
 5. `PatchPlan` still requires Safe Preview and explicit write approval.
 6. `VerificationRunner` remains the final automated check after mutation.
 7. Network approval never implies file-write approval.
-8. Symbol-aware targeting never bypasses the existing patch engine; it generates an exact SEARCH/REPLACE block and delegates to the same atomic writer.
+8. In `GRANULAR`, `READ` and `NETWORK` permissions are automatic, allowlisted verification commands are automatic, and `WRITE`/general `EXECUTE` operations require explicit approval. Blocked command patterns remain denied in every mode.
+9. Symbol-aware targeting never bypasses the existing patch engine; it generates an exact SEARCH/REPLACE block and delegates to the same atomic writer.
 
 ## Research-Orchestrator Integration
 
@@ -166,13 +167,14 @@ The orchestrator must not transition to file execution merely because a search o
 | `TERMUX_CODER_SEARCH_TIMEOUT` | `10` | Total network timeout in seconds |
 | `TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES` | `500000` | Maximum provider response size |
 | `TERMUX_CODER_SEARCH_MAX_RESULTS` | `5` | Maximum results returned to context |
-| `SECURITY` | `ASK` | Security mode for tool approvals |
+| `SECURITY` | `ASK` | `ASK`, `READONLY`, `GRANULAR`, or `AUTO`; GRANULAR auto-allows reads, web search, and allowlisted verification only |
 
 ## Testing Strategy
 
 The contract tests are in `tests/test_research_models.py`. They cover query requirements, control characters, duplicate packages, unsafe URLs, timezone-aware timestamps, source hashes, evidence fingerprints, selected-source consistency, and confidence rules. Symbol tests are in `tests/test_symbol.py` and `tests/test_symbol_patch.py`.
 
-Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Fetch-page tests cover SSRF blocking, private redirects, content-type rejection, bounded extraction, and RESEARCHING orchestration. Symbol tests cover AST extraction, ambiguity rejection, signature checks, workspace boundaries, TOCTOU hashes, narrow diffs, approval, and orchestration. Future integration tests must cover:
+Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Policy tests cover GRANULAR automatic reads/search/verification, approval for writes/deletes/general commands, blocked pipelines, and environment configuration.
+ Fetch-page tests cover SSRF blocking, private redirects, content-type rejection, bounded extraction, and RESEARCHING orchestration. Symbol tests cover AST extraction, ambiguity rejection, signature checks, workspace boundaries, TOCTOU hashes, narrow diffs, approval, and orchestration. Future integration tests must cover:
 
 ```text
 TaskIntent
