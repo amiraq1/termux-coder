@@ -40,9 +40,19 @@ _SECRET_NAMES = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_home(monkeypatch, tmp_path):
+    """Redirect HOME so that ~/.termux_coder/providers.json on the real
+    filesystem never leaks into the auto-discovery path during tests."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("TERMUX_CODER_PROVIDERS_CONFIG", raising=False)
+    monkeypatch.delenv("PROVIDERS_CONFIG", raising=False)
+
+
 def _clear_keys(monkeypatch):
     for name in (*_SECRET_NAMES, *_BASE_URL_NAMES):
         monkeypatch.delenv(name, raising=False)
+
 
 
 def test_auto_prefers_nvidia_before_other_configured_keys(monkeypatch):

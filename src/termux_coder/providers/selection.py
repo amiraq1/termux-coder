@@ -122,9 +122,14 @@ def _resolve_config_path(
     workspace: str | Path | None,
 ) -> Path | None:
     if config_path:
-        path = Path(config_path).expanduser()
+        path = Path(config_path).expanduser().resolve()
         if not path.exists():
-            raise FileNotFoundError(f"provider config file not found: {path}")
+            raise FileNotFoundError(
+                f"provider config not found: {path}\n"
+                f"  Create it with at least an empty providers list:\n"
+                f'    mkdir -p "{path.parent}" && echo \'{{"providers":[]}}\' > "{path}"\n'
+                f"  Or unset --providers-config / TERMUX_CODER_PROVIDERS_CONFIG to use built-in providers."
+            )
         return path
     for path in _config_candidates(workspace):
         if path.is_file():
