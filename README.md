@@ -31,6 +31,7 @@
 | TERMUX_CODER_SINGLE_TOOL_CALLS | — | 1 |
 | TERMUX_CODER_WEB_SEARCH | — | 1 |
 | TERMUX_CODER_RESEARCH_AUTO | — | 1 |
+| TERMUX_CODER_CAPABILITY_ADAPTERS | — | 1 |
 | TERMUX_CODER_SEARCH_PROVIDER | — | duckduckgo |
 | TERMUX_CODER_SEARCH_TIMEOUT | — | 10 seconds |
 | TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES | — | 500000 |
@@ -80,6 +81,8 @@ termux-coder --workspace ~/my-project
 
 يحتوي النظام على أداة `web_search` للبحث الشبكي للقراءة فقط، وتعمل عبر `Network Policy` ومزود Async قابل للتبديل. نتائج البحث تُعامل دائمًا كبيانات ويب غير موثوقة، ولا تمنح موافقة على تعديل الملفات أو تشغيل الأوامر.
 
+توجد طبقة `Capability Adapter Layer` في `src/termux_coder/core/capabilities.py`. تسجل هذه الطبقة مزودي القدرات بشكل صريح، وتعرض وصفًا تدقيقيًا لكل قدرة، وتبقي `PolicyEngine` الجهة الوحيدة التي تقرر السماح والموافقة. لا يستطيع الـ adapter الكتابة أو تنفيذ shell commands؛ دوره هو تمرير بيانات البحث غير الموثوقة فقط. يعمل `DuckDuckGoProvider` عبر `WebSearchCapabilityAdapter` افتراضيًا، ويمكن الرجوع إلى المسار القديم عبر `TERMUX_CODER_CAPABILITY_ADAPTERS=0`.
+
 توجد عقود المعرفة في `src/termux_coder/models/research.py`:
 
 | العقد | الوظيفة |
@@ -89,7 +92,7 @@ termux-coder --workspace ~/my-project
 | `ResearchPacket` | يربط الأدلة بالنية والمصادر المختارة ومستوى الثقة |
 | `SymbolTarget` | يحدد دالة أو صنفًا أو method فريدًا لتعديل ضيق |
 
-تم تفعيل حالة `RESEARCHING` في `AgentOrchestrator`، وإضافة `fetch_page` لجلب صفحات HTTP(S) العامة للقراءة فقط مع فحص SSRF والـredirects ونوع المحتوى والحجم. كما أصبح `ResearchCoordinator` يُستدعى تلقائيًا للمهام التي تطلب وثائق حديثة، ويحوّل نتائج البحث والصفحات إلى `EvidenceItem` ويجمعها في `ResearchPacket` مع ترتيب المصادر والبصمات ومستوى الثقة. يُحفظ packet في حالة الجلسة، ولا يبدأ الوكيل استدعاء النموذج التنفيذي قبل إكمال بوابة البحث. تبقى الصفحات والنتائج بيانات ويب غير موثوقة ولا تمنح موافقة على تعديل الملفات.
+تم تفعيل حالة `RESEARCHING` في `AgentOrchestrator`، وإضافة `fetch_page` لجلب صفحات HTTP(S) العامة للقراءة فقط مع فحص SSRF والـredirects ونوع المحتوى والحجم. كما يُستدعى `ResearchCoordinator` تلقائيًا للمهام التي تطلب وثائق حديثة، ويحوّل نتائج البحث والصفحات إلى `EvidenceItem` ويجمعها في `ResearchPacket` مع ترتيب المصادر والبصمات ومستوى الثقة. يُحفظ packet في حالة الجلسة، ولا يبدأ الوكيل استدعاء النموذج التنفيذي قبل إكمال بوابة البحث. تبقى الصفحات والنتائج بيانات ويب غير موثوقة ولا تمنح موافقة على تعديل الملفات. يمر البحث عبر `CapabilityRegistry` عند تفعيل طبقة adapters، مع fallback صريح إلى المزود القديم عند تعطيل feature flag.
 
 يدعم النظام الآن `apply_symbol_patch` لتعديل دالة أو صنف أو method Python بعد حلّه عبر AST. يرفض الرمز المفقود أو المكرر، يتحقق من `expected_signature` وبصمة القراءة، ويولّد Diff ضيقًا يمر عبر Safe Preview والموافقة وVerificationRunner مثل patch العادي. راجع [وثيقة التصميم المعماري](docs/architecture.md) للتدفق الكامل وحدود الثقة.
 

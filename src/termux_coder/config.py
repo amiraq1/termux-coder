@@ -33,6 +33,10 @@ class Settings:
 
     web_search_enabled: bool = field(default_factory=lambda: _env("WEB_SEARCH", "1") == "1")
     research_auto_enabled: bool = field(default_factory=lambda: _env("RESEARCH_AUTO", "1") == "1")
+    # Adapter layer is enabled by default; set to 0 for the legacy provider path.
+    capability_adapters_enabled: bool = field(
+        default_factory=lambda: _env("CAPABILITY_ADAPTERS", "1") == "1"
+    )
     web_search_provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "duckduckgo"))
     web_search_timeout_s: float = field(default_factory=lambda: float(_env("SEARCH_TIMEOUT", "10")))
     web_search_max_response_bytes: int = field(

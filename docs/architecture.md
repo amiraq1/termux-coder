@@ -4,7 +4,7 @@
 
 `termux-coder` is a safety-first coding agent designed for Termux on Android. The architecture separates **knowledge acquisition**, **planning**, **file mutation**, and **verification** so that external web content never becomes an implicit instruction to modify the workspace.
 
-The current implementation keeps the legacy execution path available while the `AgentOrchestrator` path is enabled progressively through feature flags. The research contracts introduced in `src/termux_coder/models/research.py` define the boundary between current web knowledge and coding plans. The orchestrator exposes a `RESEARCHING` state for web discovery and page retrieval, and `core/research.py` now provides a `ResearchCoordinator` that converts available search/page results into validated evidence packets. Automatic invocation of the coordinator from the turn loop remains a future integration step.
+The current implementation keeps the legacy execution path available while the `AgentOrchestrator` path is enabled progressively through feature flags. The research contracts introduced in `src/termux_coder/models/research.py` define the boundary between current web knowledge and coding plans. The orchestrator exposes a `RESEARCHING` state for web discovery and page retrieval, and `core/research.py` provides a `ResearchCoordinator` that converts search/page results into validated evidence packets. The `CapabilityRegistry` and `WebSearchCapabilityAdapter` in `core/capabilities.py` provide an explicit extension boundary for network providers while preserving the legacy provider path through a feature flag.
 
 ## System Layers
 
@@ -33,7 +33,7 @@ flowchart TD
     B --> S
 ```
 
-The diagram describes the knowledge-assisted flow. The currently available production flow includes `web_search`, `fetch_page`, Network Policy, the `RESEARCHING` state, and the research data contracts. A coordinator that automatically builds a `ResearchPacket` from fetched evidence remains planned follow-up work.
+The diagram describes the knowledge-assisted flow. The currently available production flow includes `web_search`, `fetch_page`, Network Policy, the `RESEARCHING` state, the research data contracts, and automatic `ResearchCoordinator` integration for current-documentation requests.
 
 ## Core Execution Components
 
@@ -51,6 +51,8 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `VerificationRunner` | Runs bounded, allowlisted project checks | argv only, no `shell=True` |
 | `AuditLog` | Records decisions and security-relevant events | UTC timestamps and operation context |
 | `ResearchCoordinator` | Ranks sources and converts search/page results into evidence packets | Does not grant write approval or execute mutations |
+| `CapabilityRegistry` | Registers explicitly configured external capabilities | No dynamic discovery; metadata does not grant permissions |
+| `WebSearchCapabilityAdapter` | Adapts a read-only search provider to the capability contract | Delegates search only; no shell or file access |
 
 ## Research Contracts
 
@@ -111,6 +113,8 @@ The current web knowledge path is:
 ```text
 web_search arguments
   → Network Policy
+  → CapabilityRegistry
+  → WebSearchCapabilityAdapter
   → DuckDuckGoProvider
   → bounded HTML response
   → WebSanitizer
@@ -122,7 +126,7 @@ web_search arguments
   → untrusted research data
 ```
 
-Search results are for source discovery. `fetch_page` retrieves a bounded public HTTP(S) page for reading, but it does not itself certify version compatibility or create a planning approval. A future `ResearchCoordinator` will select official sources, match versions, and construct a `ResearchPacket` from the fetched evidence.
+Search results are for source discovery. `fetch_page` retrieves a bounded public HTTP(S) page for reading, but it does not itself certify version compatibility or create a planning approval. `ResearchCoordinator` selects and ranks available sources, matches the research intent, and constructs a `ResearchPacket` from fetched evidence. Setting `TERMUX_CODER_CAPABILITY_ADAPTERS=0` bypasses the registry and preserves the direct DuckDuckGo provider path for rollback.
 
 ## Trust Boundaries
 
@@ -163,6 +167,7 @@ The orchestrator must not transition to file execution merely because a search o
 | `TERMUX_CODER_ORCHESTRATOR` | `0` | Enables the orchestrated execution path |
 | `TERMUX_CODER_WEB_SEARCH` | `1` | Enables the read-only web-search tool |
 | `TERMUX_CODER_RESEARCH_AUTO` | `1` | Automatically researches tasks that request current documentation |
+| `TERMUX_CODER_CAPABILITY_ADAPTERS` | `1` | Routes configured network capabilities through the explicit adapter registry; `0` keeps the legacy provider path |
 | `TERMUX_CODER_SEARCH_PROVIDER` | `duckduckgo` | Selects the provider implementation |
 | `TERMUX_CODER_SEARCH_TIMEOUT` | `10` | Total network timeout in seconds |
 | `TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES` | `500000` | Maximum provider response size |

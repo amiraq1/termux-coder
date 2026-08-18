@@ -19,6 +19,7 @@ from ..security.jail import WorkspaceJail
 from ..security.policy import CommandPolicy, PolicyEngine
 from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
+from .capabilities import CapabilityRegistry, WebSearchCapabilityAdapter
 from .orchestrator import AgentOrchestrator, TurnState
 from .orchestrator_adapter import RouterProviderAdapter
 from .verification import VerificationRunner
@@ -40,6 +41,7 @@ class ToolContext:
     repomap: object
     lsp: object
     research_coordinator: ResearchCoordinator | None = None
+    capability_registry: CapabilityRegistry | None = None
 
 
 class Agent:
@@ -98,6 +100,7 @@ class Agent:
             else:
                 self.session_id = store.create(str(self.jail.root), settings.model)
 
+        self.capability_registry = CapabilityRegistry()
         self.research_coordinator = None
         if (
             getattr(settings, "web_search_enabled", True)
@@ -108,8 +111,13 @@ class Agent:
                 max_response_bytes=settings.web_search_max_response_bytes,
                 max_results=settings.web_search_max_results,
             )
+            research_provider = search_provider
+            if getattr(settings, "capability_adapters_enabled", True):
+                search_adapter = WebSearchCapabilityAdapter(search_provider)
+                self.capability_registry.register(search_adapter)
+                research_provider = search_adapter
             self.research_coordinator = ResearchCoordinator(
-                search_provider,
+                research_provider,
                 FetchPageService(
                     timeout_s=settings.web_search_timeout_s,
                     max_response_bytes=settings.web_search_max_response_bytes,
@@ -127,6 +135,7 @@ class Agent:
             self.repomap,
             self.lsp,
             self.research_coordinator,
+            self.capability_registry,
         )
         self.orchestrator: AgentOrchestrator | None = None
 

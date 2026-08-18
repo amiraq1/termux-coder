@@ -12,6 +12,13 @@ from .web_provider import (
 
 
 def _provider(ctx) -> Any:
+    if getattr(ctx.settings, "capability_adapters_enabled", True):
+        registry = getattr(ctx, "capability_registry", None)
+        adapter = registry.get("web_search") if registry is not None else None
+        if adapter is not None:
+            return adapter
+
+    # Legacy fallback: keep the original provider path available for rollback.
     settings = ctx.settings
     name = getattr(settings, "web_search_provider", "duckduckgo").lower()
     if name == "duckduckgo":
@@ -57,6 +64,7 @@ async def web_search(args: WebSearchArgs, ctx) -> str:
         "web_search_started",
         query=bounded_args.query,
         provider=getattr(ctx.settings, "web_search_provider", "duckduckgo"),
+        capability="web_search",
     )
     try:
         result: WebSearchResult = await _provider(ctx).search(bounded_args)
