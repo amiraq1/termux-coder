@@ -10,7 +10,7 @@ from .core.agent import Agent
 from .core.registry import ToolRegistry
 from .core.session import SessionStore
 from .providers.openai_compat import OpenAICompatProvider
-from .tools import edit, fs, shell, todos, maptool, gittool, lsptool, transaction, web_search, fetch_page
+from .tools import edit, fs, shell, todos, maptool, gittool, lsptool, transaction, web_search, fetch_page, symbol
 from .ui.cli import CliUI
 
 
@@ -51,6 +51,12 @@ def build_registry() -> ToolRegistry:
         "Modify or create a file using SEARCH/REPLACE blocks. Shows a diff and requires human approval.",
         edit.ApplyPatchArgs,
         edit.apply_patch,
+    )
+    reg.register(
+        "apply_symbol_patch",
+        "Replace one resolved Python function, class, or method. Shows a narrow diff and requires human approval.",
+        symbol.SymbolPatchArgs,
+        edit.apply_symbol_patch,
     )
     reg.register(
         "rollback_patch",

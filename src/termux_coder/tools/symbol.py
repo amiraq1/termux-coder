@@ -1,4 +1,5 @@
 import ast
+import textwrap
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -13,6 +14,16 @@ class SymbolTarget(BaseModel):
     path: str
     name: str
     kind: Literal["function", "class", "method"]
+    expected_signature: str | None = None
+
+
+class SymbolPatchArgs(BaseModel):
+    """Arguments for a symbol-scoped patch operation."""
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    name: str
+    kind: Literal["function", "class", "method"]
+    replacement: str
     expected_signature: str | None = None
 
 
@@ -120,3 +131,56 @@ def resolve_symbol(source: str, target: SymbolTarget) -> ExtractedSymbol:
             )
             
     return match
+
+
+def build_symbol_patch(
+    source: str,
+    target: SymbolTarget,
+    replacement: str,
+) -> tuple[ExtractedSymbol, str]:
+    """Build an exact SEARCH/REPLACE patch limited to one resolved symbol.
+
+    ``replacement`` is written at top-level indentation. The indentation of
+    the resolved symbol is restored automatically, so a method replacement
+    remains inside its class while the generated SEARCH block stays exact.
+    """
+    if not replacement.strip():
+        raise SymbolResolutionError("symbol replacement must not be empty")
+
+    symbol = resolve_symbol(source, target)
+    lines = source.splitlines(keepends=True)
+    original = "".join(lines[symbol.start_line - 1 : symbol.end_line])
+    if not original:
+        raise SymbolResolutionError("resolved symbol has an empty source range")
+
+    first_line = original.splitlines()[0]
+    prefix = first_line[: len(first_line) - len(first_line.lstrip(" \t"))]
+    normalized = textwrap.dedent(replacement).strip("\n")
+    replacement_lines = normalized.splitlines()
+    adjusted = "\n".join(
+        (prefix + line if line.strip() else line)
+        for line in replacement_lines
+    )
+    had_newline = original.endswith("\n")
+    new_symbol = adjusted + ("\n" if had_newline else "")
+    old_block = original.rstrip("\n")
+    new_block = new_symbol.rstrip("\n")
+    patch_text = (
+        "<<<<<<< SEARCH\n"
+        f"{old_block}\n"
+        "=======\n"
+        f"{new_block}\n"
+        ">>>>>>> REPLACE"
+    )
+    return symbol, patch_text
+
+
+__all__ = [
+    "ExtractedSymbol",
+    "SymbolPatchArgs",
+    "SymbolResolutionError",
+    "SymbolTarget",
+    "build_symbol_patch",
+    "extract_python_symbols",
+    "resolve_symbol",
+]

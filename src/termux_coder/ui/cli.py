@@ -64,8 +64,10 @@ class CliUI(AgentUI):
     async def request_approval(self, kind: str, payload: dict) -> bool:
         print()
         if kind == "patch":
-            print(logo.paint(f"── proposed patch: {payload.get('path')} ──", logo.TEAL))
-            print(payload.get("diff", ""))
+            symbol = payload.get("symbol")
+            label = f"{symbol} in " if symbol else ""
+            print(logo.paint(f"── proposed {label}patch: {payload.get('path')} ──", logo.TEAL))
+            print(payload.get("diff", "") or payload.get("replacement", ""))
         elif kind == "patch_plan":
             print(logo.paint(f"── proposed patch plan: {payload.get('plan_id')} ──", logo.TEAL))
             print(payload.get("summary", ""))

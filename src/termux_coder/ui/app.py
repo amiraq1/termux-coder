@@ -282,8 +282,12 @@ class TextualUI(AgentUI):
 
     async def request_approval(self, kind: str, payload: dict) -> bool:
         if kind == "patch":
-            title = f"Apply patch to {payload.get('path')}?"
-            body = payload.get("diff", "")
+            symbol = payload.get("symbol")
+            title = (
+                f"Apply {symbol} patch to {payload.get('path')}?"
+                if symbol else f"Apply patch to {payload.get('path')}?"
+            )
+            body = payload.get("diff", "") or payload.get("replacement", "")
         elif kind == "patch_plan":
             title = f"Apply patch plan {payload.get('plan_id', '')}?"
             summary = payload.get("summary", "")

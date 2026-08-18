@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 from . import patch as patchlib
+from .symbol import SymbolPatchArgs, SymbolTarget, SymbolResolutionError, build_symbol_patch
 
 class ApplyPatchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -242,6 +243,57 @@ async def apply_patch(args: ApplyPatchArgs, ctx) -> str:
             )
 
     return f"patch applied to {rel}"
+
+
+async def apply_symbol_patch(args: SymbolPatchArgs, ctx) -> str:
+    """Resolve and patch one Python symbol through the normal safe patch path."""
+    rel_input = args.path or ""
+    if rel_input.startswith("./"):
+        rel_input = rel_input[2:]
+    try:
+        path = ctx.jail.check_readable(rel_input)
+        rel = ctx.jail.rel(path)
+    except Exception as exc:
+        return f"symbol patch error: {exc}"
+
+    if rel not in ctx.state.read_files:
+        return f"refused: you must read_file({rel}) before symbol patching it"
+
+    try:
+        source = path.read_text(encoding="utf-8")
+        current_hash = _sha256(source)
+        expected_hash = ctx.state.read_hashes.get(rel)
+        if expected_hash and expected_hash != current_hash:
+            return (
+                f"symbol patch refused: {rel} was modified after you read it "
+                f"(expected {expected_hash[:8]}…, got {current_hash[:8]}…). "
+                "Re-read the file before patching."
+            )
+        target = SymbolTarget(
+            path=rel,
+            name=args.name,
+            kind=args.kind,
+            expected_signature=args.expected_signature,
+        )
+        resolved, patch_text = build_symbol_patch(source, target, args.replacement)
+        ctx.audit.log(
+            "symbol_resolved",
+            path=rel,
+            name=resolved.name,
+            kind=resolved.kind,
+            start_line=resolved.start_line,
+            end_line=resolved.end_line,
+            source_hash=current_hash[:16],
+        )
+    except SymbolResolutionError as exc:
+        return f"symbol patch error: {exc}"
+    except Exception as exc:
+        return f"symbol patch error: {exc}"
+
+    return await apply_patch(
+        ApplyPatchArgs(path=rel, patch=patch_text),
+        ctx,
+    )
 
 
 async def rollback_patch(args: RollbackPatchArgs, ctx) -> str:

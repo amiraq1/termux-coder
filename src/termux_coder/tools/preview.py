@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..core.context import SessionState
 from ..security.jail import WorkspaceJail
 from . import patch as patchlib
+from .symbol import SymbolTarget, build_symbol_patch, SymbolResolutionError
 
 
 class PreviewError(Exception):
@@ -130,6 +131,39 @@ class PatchPreviewService:
             removals=removals,
             creates_file=not exists,
         )
+
+    def generate_symbol(
+        self,
+        relative_path: str,
+        name: str,
+        kind: str,
+        replacement: str,
+        expected_signature: str | None = None,
+    ) -> PatchPreview:
+        """Resolve one symbol and preview an exact, symbol-scoped patch."""
+        rel = (relative_path or "").removeprefix("./")
+        try:
+            path = self.jail.check_readable(rel)
+            source = path.read_text(encoding="utf-8")
+            expected_hash = self.state.read_hashes.get(rel)
+            if expected_hash and expected_hash != _sha256(source):
+                raise PreviewError(
+                    f"preview refused: {rel} changed after read; re-read the file"
+                )
+            target = SymbolTarget(
+                path=rel,
+                name=name,
+                kind=kind,
+                expected_signature=expected_signature,
+            )
+            _, patch_text = build_symbol_patch(source, target, replacement)
+        except PreviewError:
+            raise
+        except SymbolResolutionError as exc:
+            raise PreviewError(str(exc)) from exc
+        except Exception as exc:
+            raise PreviewError(f"symbol preview failed for {rel}: {exc}") from exc
+        return self.generate(rel, patch_text)
 
     def generate_plan(self, operations: Sequence[object], summary: str = "") -> PatchPlanPreview:
         """Generate all file previews before any file is written."""

@@ -24,6 +24,8 @@ flowchart TD
     V --> G[Human Approval]
     G --> X[PatchPlan / apply_patch]
     X --> B[Atomic Write + Backup]
+    T --> Y[SymbolTarget / AST]
+    Y --> V
     B --> Q[VerificationRunner]
     Q --> Z[AuditLog + SessionState]
     W --> N[Network Policy]
@@ -44,6 +46,8 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `WorkspaceJail` | Constrains file access to the workspace | Prevents path escape and unsafe file access |
 | `PatchPreviewService` | Builds diffs and source/result fingerprints | Preview precedes mutation |
 | `PatchPlan` | Applies related file changes as one transaction | Full rollback on failure |
+| `SymbolTarget` | Resolves one Python function, class, or method using AST | Missing or ambiguous symbols are rejected |
+| `apply_symbol_patch` | Generates and applies a narrow symbol-scoped patch | Read hash, Safe Preview, approval, and verification remain mandatory |
 | `VerificationRunner` | Runs bounded, allowlisted project checks | argv only, no `shell=True` |
 | `AuditLog` | Records decisions and security-relevant events | UTC timestamps and operation context |
 | `ResearchCoordinator` | Ranks sources and converts search/page results into evidence packets | Does not grant write approval or execute mutations |
@@ -133,6 +137,7 @@ The boundaries are as follows:
 5. `PatchPlan` still requires Safe Preview and explicit write approval.
 6. `VerificationRunner` remains the final automated check after mutation.
 7. Network approval never implies file-write approval.
+8. Symbol-aware targeting never bypasses the existing patch engine; it generates an exact SEARCH/REPLACE block and delegates to the same atomic writer.
 
 ## Research-Orchestrator Integration
 
@@ -165,9 +170,9 @@ The orchestrator must not transition to file execution merely because a search o
 
 ## Testing Strategy
 
-The contract tests are in `tests/test_research_models.py`. They cover query requirements, control characters, duplicate packages, unsafe URLs, timezone-aware timestamps, source hashes, evidence fingerprints, selected-source consistency, and confidence rules.
+The contract tests are in `tests/test_research_models.py`. They cover query requirements, control characters, duplicate packages, unsafe URLs, timezone-aware timestamps, source hashes, evidence fingerprints, selected-source consistency, and confidence rules. Symbol tests are in `tests/test_symbol.py` and `tests/test_symbol_patch.py`.
 
-Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Fetch-page tests cover SSRF blocking, private redirects, content-type rejection, bounded extraction, and RESEARCHING orchestration. Future integration tests must cover:
+Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Fetch-page tests cover SSRF blocking, private redirects, content-type rejection, bounded extraction, and RESEARCHING orchestration. Symbol tests cover AST extraction, ambiguity rejection, signature checks, workspace boundaries, TOCTOU hashes, narrow diffs, approval, and orchestration. Future integration tests must cover:
 
 ```text
 TaskIntent

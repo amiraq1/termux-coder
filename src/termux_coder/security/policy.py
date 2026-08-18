@@ -27,7 +27,9 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "git_log":         Permission.READ,
     "get_todos":       Permission.READ,
     # أدوات كتابة
-    "apply_patch":     Permission.WRITE,
+        "apply_patch":    Permission.WRITE,
+    "apply_symbol_patch": Permission.WRITE,
+
     "apply_patch_plan": Permission.WRITE,
     "write_file":      Permission.WRITE,
     "delete_file":     Permission.WRITE,

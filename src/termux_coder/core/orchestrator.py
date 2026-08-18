@@ -202,12 +202,20 @@ class AgentOrchestrator:
             deny_reason = None
             preview = None
             preview_error = None
-            if call.name in {"apply_patch", "apply_patch_plan"} and self._preview_service is not None:
+            if call.name in {"apply_patch", "apply_symbol_patch", "apply_patch_plan"} and self._preview_service is not None:
                 try:
                     if call.name == "apply_patch":
                         preview = self._preview_service.generate(
                             str(call.arguments.get("path", "")),
                             str(call.arguments.get("patch", "")),
+                        )
+                    elif call.name == "apply_symbol_patch":
+                        preview = self._preview_service.generate_symbol(
+                            str(call.arguments.get("path", "")),
+                            str(call.arguments.get("name", "")),
+                            str(call.arguments.get("kind", "")),
+                            str(call.arguments.get("replacement", "")),
+                            call.arguments.get("expected_signature"),
                         )
                     else:
                         preview = self._preview_service.generate_plan(
@@ -220,7 +228,7 @@ class AgentOrchestrator:
                     deny_reason = preview_error
                 if preview is not None:
                     self.audit.log(
-                        "patch_preview" if call.name == "apply_patch" else "patch_plan_preview",
+                        "patch_preview" if call.name in {"apply_patch", "apply_symbol_patch"} else "patch_plan_preview",
                         turn_id=self._turn_id,
                         call_id=call.call_id,
                         path=preview.path,
@@ -478,7 +486,7 @@ class AgentOrchestrator:
         """شغّل التحقق بعد تعديل ناجح؛ يعيد (continue, terminal_error)."""
         runner = self._verification_runner
         if runner is None or not any(
-            result.ok and result.tool in {"apply_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan", "git_restore", "git_commit"}
+            result.ok and result.tool in {"apply_patch", "apply_symbol_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan", "git_restore", "git_commit"}
             for result in self._tool_results[-10:]
         ):
             return True, None
@@ -1055,7 +1063,7 @@ class AgentOrchestrator:
 
     @staticmethod
     def _approval_kind(tool_name: str) -> str:
-        if tool_name in {"apply_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan"}:
+        if tool_name in {"apply_patch", "apply_symbol_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan"}:
             return "patch"
         if tool_name in {"web_search", "fetch_page"}:
             return "network"
@@ -1076,6 +1084,22 @@ class AgentOrchestrator:
                     "removals": ecall.preview.removals,
                 }
             return {"path": args.get("path", ""), "diff": args.get("patch", "")}
+        if call.name == "apply_symbol_patch":
+            if ecall.preview is not None:
+                return {
+                    "title": "Approve symbol patch",
+                    "path": ecall.preview.path,
+                    "symbol": f"{args.get('kind', '')} {args.get('name', '')}",
+                    "diff": ecall.preview.diff,
+                    "additions": ecall.preview.additions,
+                    "removals": ecall.preview.removals,
+                }
+            return {
+                "title": "Approve symbol patch",
+                "path": args.get("path", ""),
+                "symbol": f"{args.get('kind', '')} {args.get('name', '')}",
+                "replacement": args.get("replacement", ""),
+            }
         if call.name == "apply_patch_plan":
             if ecall.preview is not None:
                 return {
