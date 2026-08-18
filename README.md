@@ -14,8 +14,10 @@
 ## الفحص والتشغيل
 
     termux-coder doctor                       # فحص البيئة
-    termux-coder --workspace ~/مشروعك         # واجهة TUI
-    termux-coder --cli --workspace ~/مشروعك   # وضع CLI
+    termux-coder --workspace ~/my-project     # الواجهة الرئيسية: CLI
+    termux-coder --tui --workspace ~/my-project  # TUI fallback مؤقت
+
+يعمل CLI افتراضيًا لتوفير واجهة مناسبة لشاشات Termux الصغيرة. يبقى Textual TUI متاحًا مؤقتًا عبر الخيار الصريح `--tui`. الخيار `--cli` القديم مخفي لكنه مدعوم للتوافق مع أوامر التشغيل السابقة.
 
 ## الإعدادات (env)
 

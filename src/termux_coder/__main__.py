@@ -10,7 +10,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="termux-coder")
     parser.add_argument("command", nargs="?", choices=["run", "doctor"], default="run")
     parser.add_argument("--workspace", default=".")
-    parser.add_argument("--cli", action="store_true", help="force CLI mode (default: TUI)")
+    parser.add_argument("--tui", action="store_true", help="use the Textual UI instead of the default CLI")
+    parser.add_argument("--cli", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output for doctor")
     parser.add_argument("--verbose", action="store_true", help="show doctor check details")
@@ -37,7 +38,7 @@ def main() -> None:
             )
         )
 
-    if args.cli:
+    if not args.tui or args.cli:
         from .cli import cli_main
 
         asyncio.run(cli_main(settings))
@@ -52,11 +53,11 @@ def main() -> None:
         store = SessionStore(settings.state_dir / "sessions.db")
         
         if settings.openai_api_key in ("", "EMPTY") and "openai.com" in settings.openai_base_url:
-            print("⚠️ لا يوجد مفتاح API مُحمّل — سيستخدم الإعدادات الافتراضية وسيفشل الاتصال.")
-            print("   الحل: source ~/termux-coder/env_nvidia.sh")
-            
+            print("No API key loaded; the configured provider may reject requests.")
+            print("Load your environment file before starting the agent.")
+
         key = settings.openai_api_key
-        masked = (key[:8] + "…") if len(key) > 8 and key.isascii() else f"<غير صالح: ascii={key.isascii()}>"
+        masked = (key[:8] + "…") if len(key) > 8 and key.isascii() else "<invalid>"
         print(f"config: base_url={settings.openai_base_url} model={settings.model} key={masked}")
 
         agent = build_agent(settings, CliUI(), store=store)
