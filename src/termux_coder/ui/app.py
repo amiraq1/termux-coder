@@ -17,6 +17,7 @@ from .base import AgentUI
 from .blocks import (
     ExpandableStatic,
     diff_renderable,
+    fold_renderables,
     todos_renderable,
     tool_line,
     updated_line,
@@ -47,20 +48,28 @@ class TextualUI(AgentUI):
         feed.mount(widget)
         feed.scroll_end(animate=False)
 
+    def _put_folded(self, label: str, content: str, preview_lines: int, content_style: str | None = None) -> None:
+        expanded, collapsed = fold_renderables(label, content, preview_lines, content_style)
+        if collapsed is None:
+            self._put(Static(expanded))
+            return
+        widget = ExpandableStatic(expanded, collapsed)
+        self.app.register_expandable(widget)
+        self._put(widget)
+
     def _put_diff(self, diff: str) -> None:
         lines = diff.splitlines()
+        if len(lines) <= 12:
+            self._put(Static(diff_renderable(diff)))
+            return
         full = diff_renderable(diff)
-        limit = 14
-        if len(lines) > limit:
-            trunc = diff_renderable("\n".join(lines[:limit]))
-            trunc.append(
-                f"\n… (+{len(lines) - limit} more lines) [ctrl+o to expand]",
-                style=theme.DIM,
-            )
-            widget = ExpandableStatic(full, trunc)
-            self.app.register_expandable(widget)
-        else:
-            widget = Static(full)
+        collapsed = diff_renderable("\n".join(lines[:12]))
+        collapsed.append(
+            f"\n▸ DIFF · {len(lines)} lines · {len(lines) - 12} more · Ctrl+O to expand",
+            style=theme.DIM,
+        )
+        widget = ExpandableStatic(full, collapsed)
+        self.app.register_expandable(widget)
         self._put(widget)
 
     async def on_token(self, text: str) -> None:
@@ -91,19 +100,20 @@ class TextualUI(AgentUI):
             self.app.set_busy(True)
 
         elif kind == "assistant_done":
-            secs = int(time.time() - self._t0) or 1
-
             if self._stream_widget is not None:
                 self._flush_stream()
+                text = "".join(self._buf).strip()
+                stream_widget = self._stream_widget
                 self._stream_widget = None
                 self._buf = []
+                stream_widget.remove()
+                if text:
+                    self._put_folded("ASSISTANT", text, 4)
             else:
                 text = "".join(self._buf).strip()
                 if text:
-                    self._put(Static(Text(f"∷ {text}", style=theme.WHITE)))
+                    self._put_folded("ASSISTANT", text, 4)
                 self._buf = []
-
-            # Keep the feed focused on the assistant response and actionable events.
 
         elif kind in ("tool_recovered", "patch_recovered"):
             self._put(
@@ -212,19 +222,9 @@ class TextualUI(AgentUI):
         elif kind == "tool_start":
             self._put(Static(tool_line("TOOL", payload.get("tool", ""), "running"), markup=False))
         elif kind == "shell_done":
-            self._put(Static(tool_line("SHELL", payload["command"])))
-            lines = payload["output"].splitlines()
-            full = Text("\n".join(lines), style="#d7d7e0")
-            if len(lines) > 8:
-                trunc = Text("\n".join(lines[:8]), style="#d7d7e0")
-                trunc.append(
-                    f"\n… +{len(lines) - 8} lines [ctrl+o to expand]", style=theme.DIM
-                )
-                widget = ExpandableStatic(full, trunc)
-                self.app.register_expandable(widget)
-            else:
-                widget = Static(full)
-            self._put(widget)
+            command = payload.get("command", "")
+            output = payload.get("output", "")
+            self._put_folded("SHELL", f"$ {command}\n{output}".rstrip(), 8, "#d7d7e0")
 
         elif kind == "todos_update":
             items = payload["items"]

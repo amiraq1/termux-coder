@@ -40,6 +40,27 @@ def updated_line(path: str, adds: int, rems: int) -> Text:
     return t
 
 
+def fold_renderables(label: str, content: str, preview_lines: int, content_style: str | None = None) -> tuple[Text, Text | None]:
+    """Build expanded and collapsed renderables for long terminal content."""
+    lines = content.splitlines() or [""]
+    style = content_style or theme.WHITE
+    expanded = Text(f"▾ {label} · {len(lines)} lines\n", style=f"bold {theme.LAVENDER}")
+    expanded.append(content, style=style)
+    if len(lines) <= preview_lines:
+        return expanded, None
+
+    collapsed = Text(
+        f"▸ {label} · {len(lines)} lines\n",
+        style=f"bold {theme.LAVENDER}",
+    )
+    collapsed.append("\n".join(lines[:preview_lines]), style=style)
+    collapsed.append(
+        f"\n… {len(lines) - preview_lines} more lines · Ctrl+O to expand",
+        style=theme.DIM,
+    )
+    return expanded, collapsed
+
+
 def diff_renderable(diff_text: str) -> Text:
     """
     Render diffs line by line to preserve code alignment in narrow terminals.
