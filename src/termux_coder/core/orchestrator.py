@@ -35,6 +35,7 @@ from ..security.policy import PolicyEngine
 from .registry import ToolRegistry
 from .recovery import recover_tool_calls
 from ..tools.preview import PatchPreviewService, PreviewError
+from .verification import VerificationRunner, VerificationStatus
 
 
 # ══════════════════════════════════════════════════════════════
@@ -125,6 +126,7 @@ class AgentOrchestrator:
         message_sink: Callable[[dict], None] | None = None,
         message_preparer: Callable[[list[dict]], list[dict]] | None = None,
         preview_service: PatchPreviewService | None = None,
+        verification_runner: VerificationRunner | None = None,
     ):
         self.provider       = provider
         self.registry       = registry
@@ -138,6 +140,7 @@ class AgentOrchestrator:
         self._message_sink = message_sink
         self._message_preparer = message_preparer
         self._preview_service = preview_service
+        self._verification_runner = verification_runner
 
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
@@ -450,6 +453,83 @@ class AgentOrchestrator:
         )
         return result
 
+    async def _verify_after_execution(
+        self, messages: list[dict], round_idx: int
+    ) -> tuple[bool, str | None]:
+        """شغّل التحقق بعد تعديل ناجح؛ يعيد (continue, terminal_error)."""
+        runner = self._verification_runner
+        if runner is None or not any(
+            result.ok and result.tool in {"apply_patch", "rollback_patch", "git_restore", "git_commit"}
+            for result in self._tool_results[-10:]
+        ):
+            return True, None
+
+        self._transition(TurnState.VERIFYING)
+        await self._on_event("verification_start", round=round_idx)
+        result = await runner.run()
+        verify_id = f"verify:{self._turn_id}:{round_idx}"
+        verify_content = json.dumps(
+            {
+                "status": result.status.value,
+                "exit_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "command": list(result.command),
+                "duration_ms": result.duration_ms,
+                "truncated": result.truncated,
+                "reason": result.reason,
+            },
+            ensure_ascii=False,
+        )
+        self._append_message(messages, {
+            "role": "tool",
+            "tool_call_id": verify_id,
+            "content": verify_content,
+        })
+        self.audit.log(
+            "verification_result",
+            turn_id=self._turn_id,
+            round=round_idx,
+            status=result.status.value,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+            truncated=result.truncated,
+        )
+        await self._on_event(
+            "verification_result",
+            status=result.status.value,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+        )
+
+        if result.status in (VerificationStatus.PASSED, VerificationStatus.SKIPPED):
+            runner.reset_repair_attempts()
+            self._transition(TurnState.PLANNING)
+            return True, None
+
+        if result.status == VerificationStatus.CONFIG_ERROR:
+            self._transition(TurnState.FAILED)
+            return False, result.reason or "verification configuration is invalid"
+
+        if runner.can_repair():
+            runner.record_repair_attempt()
+            self._append_message(messages, {
+                "role": "system",
+                "content": (
+                    f"Verification {result.status.value} after attempt "
+                    f"{runner.repair_attempts}/{runner.max_repair_attempts}. "
+                    f"Fix the issue and verify again. stderr: {result.stderr[:1000]}"
+                ),
+            })
+            self._transition(TurnState.PLANNING)
+            return True, None
+
+        self._transition(TurnState.FAILED)
+        return False, (
+            f"verification failed after {runner.max_repair_attempts} repair attempts: "
+            f"{result.stderr[:1000]}"
+        )
+
     # ── الدورة الرئيسية ──────────────────────────────────────
 
     async def run_turn(
@@ -479,6 +559,8 @@ class AgentOrchestrator:
         self._cancel_event.clear()
         self._pending_approvals.clear()
         self._tool_results.clear()
+        if self._verification_runner is not None:
+            self._verification_runner.reset_repair_attempts()
         deadline = time.monotonic() + self.max_duration_s
         on_token = on_token or _noop_token
 
@@ -660,6 +742,17 @@ class AgentOrchestrator:
                         tool=ecall.call.name,
                         ok=result.ok,
                         duration_ms=result.duration_ms,
+                    )
+
+                should_continue, verify_error = await self._verify_after_execution(
+                    messages, round_idx
+                )
+                if not should_continue:
+                    return TurnResult(
+                        state=TurnState.FAILED,
+                        error=verify_error,
+                        tool_results=self._tool_results,
+                        rounds_used=rounds_used,
                     )
 
             # ── تجاوز الحد الأقصى للجولات ────────────────────

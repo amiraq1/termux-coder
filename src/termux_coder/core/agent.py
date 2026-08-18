@@ -21,6 +21,7 @@ from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
 from .orchestrator import AgentOrchestrator, TurnState
 from .orchestrator_adapter import RouterProviderAdapter
+from .verification import VerificationRunner
 from ..tools.preview import PatchPreviewService
 
 
@@ -136,6 +137,10 @@ class Agent:
             message_sink=self._persist,
             message_preparer=prepare_messages,
             preview_service=PatchPreviewService(self.jail, self.state),
+            verification_runner=(
+                VerificationRunner(self.jail.root, self.settings)
+                if self.settings.verification_enabled else None
+            ),
         )
         result = await self.orchestrator.run_turn(
             self.messages,

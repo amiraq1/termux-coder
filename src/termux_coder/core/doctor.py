@@ -3,10 +3,16 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import sys
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 from pathlib import Path
 
 from .. import logo
 from ..config import Settings
+from ..security.jail import WorkspaceJail, JailViolation
+from .verification import VerificationRunner
 
 
 def _ok(label: str, detail: str = "") -> None:
@@ -57,7 +63,7 @@ def run_doctor(settings: Settings) -> int:
     # 4) بيانات الاعتماد (دروس 401 و ascii)
     key = settings.openai_api_key
     if key and key != "EMPTY" and key.isascii():
-        _ok("api key", f"{key[:8]}… len={len(key)}")
+        _ok("api key", "present (ASCII-valid)")
     else:
         _fail("api key", "حرّر ~/termux-coder/env_nvidia.sh باقتباسات إنجليزية ثم source ~/.bashrc")
         problems += 1
@@ -72,8 +78,25 @@ def run_doctor(settings: Settings) -> int:
         _fail("workspace", "المجلد غير موجود"); problems += 1
     if ws == Path.home():
         _warn("workspace = home", "يُفضّل مجلد مشروع مستقل")
+    try:
+        WorkspaceJail(ws)
+        _ok("workspace jail", "path resolution is inside workspace")
+    except (JailViolation, OSError) as exc:
+        _fail("workspace jail", str(exc)); problems += 1
 
-    # 6) قاعدة الجلسات (sqlite + WAL)
+    # 6) إعداد التحقق: parse فقط، دون تنفيذ الأمر
+    verification_path = ws / ".termux-coder.toml"
+    if not verification_path.exists():
+        _warn("verification config", "not configured; verification will be skipped")
+    else:
+        runner = VerificationRunner(ws, settings)
+        argv, reason = runner._load_argv()
+        if argv is None:
+            _fail("verification config", reason); problems += 1
+        else:
+            _ok("verification config", f"valid and allowlisted (not executed): {' '.join(argv)}")
+
+    # 7) قاعدة الجلسات (sqlite + WAL)
     try:
         settings.state_dir.mkdir(parents=True, exist_ok=True)
         db = settings.state_dir / "doctor.db"
@@ -86,7 +109,7 @@ def run_doctor(settings: Settings) -> int:
     except Exception as e:
         _fail("sqlite/WAL", str(e)); problems += 1
 
-    # 7) Termux:API (اختياري)
+    # 8) Termux:API (اختياري)
     if shutil.which("termux-notification"):
         _ok("termux-api")
     else:

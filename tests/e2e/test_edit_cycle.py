@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+
+from termux_coder.providers.mock import MockResponse
+
+from conftest import E2EUI, build_orchestrator
+
+
+def patch_text(old: str, new: str) -> str:
+    return f"<<<<<<< SEARCH\n{old}\n=======\n{new}\n>>>>>>> REPLACE"
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+def test_successful_edit_cycle(e2e_components):
+    async def scenario():
+        components = e2e_components
+        patch = patch_text('return "Hello, " + name', 'return f"Hello, {name}!"')
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool("c1", "apply_patch", {"path": "main.py", "patch": patch}),
+                MockResponse.text("Done."),
+            ],
+        )
+        messages = [{"role": "user", "content": "Improve greet"}]
+        result = await orch.run_turn(messages)
+
+        assert result.state.value == "idle"
+        assert 'f"Hello, {name}!"' in (components["workspace"] / "main.py").read_text()
+        assert any(kind == "patch_applied" for kind, _ in components["ui"].events)
+        assert any(kind == "verification_result" for kind, _ in components["ui"].events)
+        assert [m["role"] for m in messages] == ["user", "assistant", "tool", "tool", "assistant"]
+
+    run(scenario())
+
+
+def test_rejection_does_not_modify_file(e2e_components):
+    async def scenario():
+        components = e2e_components
+        original = (components["workspace"] / "main.py").read_text()
+        components["ui"] = E2EUI(approve=False)
+        components["ctx"].ui = components["ui"]
+        patch = patch_text('return "Hello, " + name', "MALICIOUS")
+        orch = build_orchestrator(
+            components,
+            [MockResponse.with_tool("c2", "apply_patch", {"path": "main.py", "patch": patch})],
+            ui=components["ui"],
+        )
+        result = await orch.run_turn([{"role": "user", "content": "edit"}])
+        assert result.state.value == "cancelled"
+        assert (components["workspace"] / "main.py").read_text() == original
+
+    run(scenario())
+
+
+def test_external_change_after_preview_is_refused(e2e_components):
+    async def scenario():
+        components = e2e_components
+        path = components["workspace"] / "main.py"
+        patch = patch_text('return "Hello, " + name', 'return "Changed"')
+
+        def mutate_before_approval(_kind, _payload):
+            path.write_text(path.read_text() + "\n# external change\n")
+
+        ui = E2EUI(approve=True, before_approval=mutate_before_approval)
+        components["ctx"].ui = ui
+        orch = build_orchestrator(
+            components,
+            [MockResponse.with_tool("c3", "apply_patch", {"path": "main.py", "patch": patch})],
+            ui=ui,
+        )
+        result = await orch.run_turn([{"role": "user", "content": "edit"}])
+        content = path.read_text()
+        assert result.state.value == "idle"
+        assert "external change" in content
+        assert 'return "Changed"' not in content
+
+    run(scenario())
+
+
+def test_rollback_restores_content_and_mode(e2e_components):
+    async def scenario():
+        components = e2e_components
+        path = components["workspace"] / "main.py"
+        original = path.read_text()
+        patch = patch_text('return "Hello, " + name', 'return "Changed"')
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool("c4", "apply_patch", {"path": "main.py", "patch": patch}),
+                MockResponse.text("patched"),
+            ],
+        )
+        result = await orch.run_turn([{"role": "user", "content": "edit"}])
+        assert result.state.value == "idle"
+        assert "Changed" in path.read_text()
+
+        # rollback is separately policy-gated and uses the same approval contract.
+        rollback = build_orchestrator(
+            components,
+            [MockResponse.with_tool("c5", "rollback_patch", {"path": "main.py"}), MockResponse.text("rolled back")],
+        )
+        result = await rollback.run_turn([{"role": "user", "content": "undo"}])
+        assert result.state.value == "idle"
+        assert path.read_text() == original
+
+    run(scenario())

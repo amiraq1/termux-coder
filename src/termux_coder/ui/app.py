@@ -221,6 +221,15 @@ class TextualUI(AgentUI):
             self._put(Static(tool_line("TODOS", f"{len(items)} items")))
             self._put(Static(todos_renderable(items)))
 
+        elif kind == "verification_start":
+            self._put(Static(Text("VERIFYING · running project verification", style=theme.ORANGE)))
+        elif kind == "verification_result":
+            status = payload.get("status", "unknown")
+            style = theme.GREEN if status in ("passed", "skipped") else theme.RED
+            self._put(Static(Text(
+                f"VERIFYING · {status} · exit={payload.get('exit_code')} · {payload.get('duration_ms')}ms",
+                style=style,
+            )))
         elif kind == "tool_denied":
             self._put(Static(Text(
                 f"DENIED · {payload.get('tool', '')} · {payload.get('reason', '')}",

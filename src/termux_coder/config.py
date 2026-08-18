@@ -38,6 +38,18 @@ class Settings:
     orchestrator_enabled: bool = field(
         default_factory=lambda: _env("ORCHESTRATOR", "0") == "1"
     )
+    verification_enabled: bool = field(
+        default_factory=lambda: _env("VERIFICATION", "1") == "1"
+    )
+    verification_timeout_s: float = field(
+        default_factory=lambda: float(_env("VERIFICATION_TIMEOUT", "30"))
+    )
+    verification_max_output_chars: int = field(
+        default_factory=lambda: int(_env("VERIFICATION_MAX_OUTPUT", "5000"))
+    )
+    verification_max_repair_attempts: int = field(
+        default_factory=lambda: int(_env("VERIFICATION_MAX_REPAIRS", "3"))
+    )
 
     @property
     def state_dir(self) -> Path:
