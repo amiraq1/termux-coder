@@ -9,6 +9,7 @@ class Permission(Enum):
     READ = "read"       # قراءة فقط: read_file, list_dir, search_text, repo_map
     WRITE = "write"     # كتابة الملفات: apply_patch, write_file, rollback_patch
     EXECUTE = "execute" # تنفيذ أوامر: run_command, git_*
+    NETWORK = "network" # اتصالات قراءة خارجية: web_search, fetch_page
 
 
 # صلاحية كل أداة — يحددها المطور، لا النموذج ولا المستدعي
@@ -16,7 +17,9 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     # أدوات قراءة
     "read_file":       Permission.READ,
     "list_dir":        Permission.READ,
-    "search_text":     Permission.READ,
+        "search_text":    Permission.READ,
+    "web_search":     Permission.NETWORK,
+
     "repo_map":        Permission.READ,
     "git_status":      Permission.READ,
     "git_diff":        Permission.READ,
@@ -108,18 +111,20 @@ class PolicyEngine:
                 reason=f"unknown tool '{tool_name}' — not in registry",
             )
 
-        if self.mode == "READONLY" and perm != Permission.READ:
+        if self.mode == "READONLY" and perm not in {Permission.READ, Permission.NETWORK}:
             return PolicyDecision(
                 allowed=False,
                 requires_approval=False,
                 reason=f"READONLY mode: '{tool_name}' requires {perm.value} permission",
             )
 
-        # قراءة: دائماً مسموح دون موافقة
+        # قراءة واتصالات الشبكة في READONLY لا تعدل مساحة العمل.
         if perm == Permission.READ:
             return PolicyDecision(allowed=True, requires_approval=False, reason="read_ok")
+        if perm == Permission.NETWORK and self.mode == "READONLY":
+            return PolicyDecision(allowed=True, requires_approval=False, reason="network_read_ok")
 
-        # كتابة أو تنفيذ: يحتاج موافقة إلا في AUTO
+        # الكتابة والتنفيذ والبحث الشبكي في ASK تحتاج موافقة، وAUTO يتخطاها.
         needs_approval = self.mode != "AUTO"
         return PolicyDecision(
             allowed=True,

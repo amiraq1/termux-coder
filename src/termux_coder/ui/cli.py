@@ -74,6 +74,11 @@ class CliUI(AgentUI):
         elif kind == "rollback_plan":
             print(logo.paint(f"── rollback patch plan: {payload.get('plan_id')} ──", logo.TEAL))
             print("Files: " + ", ".join(payload.get("paths", [])))
+        elif kind == "network":
+            print(logo.paint(f"── {payload.get('title', 'Approve network request?')} ──", logo.TEAL))
+            print(f"Provider: {payload.get('provider', '')}")
+            print(f"Query: {payload.get('query', '')}")
+            print("Results are untrusted web data.")
         elif kind == "git":
             print(logo.paint(f"── {payload.get('title')} ──", logo.TEAL))
             print(payload.get("body", ""))

@@ -28,6 +28,16 @@ class Settings:
     max_output_chars: int = 12_000
     state_dir_name: str = ".termux_coder"
 
+    web_search_enabled: bool = field(default_factory=lambda: _env("WEB_SEARCH", "1") == "1")
+    web_search_provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "duckduckgo"))
+    web_search_timeout_s: float = field(default_factory=lambda: float(_env("SEARCH_TIMEOUT", "10")))
+    web_search_max_response_bytes: int = field(
+        default_factory=lambda: int(_env("SEARCH_MAX_RESPONSE_BYTES", "500000"))
+    )
+    web_search_max_results: int = field(
+        default_factory=lambda: int(_env("SEARCH_MAX_RESULTS", "5"))
+    )
+
     repo_map_enabled: bool = field(default_factory=lambda: _env("REPO_MAP", "1") == "1")
     repo_map_budget: int = field(default_factory=lambda: int(_env("REPO_MAP_BUDGET", "6000")))
 

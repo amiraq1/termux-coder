@@ -231,6 +231,13 @@ class TextualUI(AgentUI):
             self._put(Static(tool_line("TODOS", f"{len(items)} items")))
             self._put(Static(todos_renderable(items)))
 
+        elif kind == "web_search_started":
+            self.app.update_activity("SEARCH", payload.get("query", ""))
+            self._put(Static(tool_line("SEARCH", payload.get("provider", ""), payload.get("query", ""))))
+        elif kind == "web_search_finished":
+            self._put(Static(tool_line("SEARCH", payload.get("provider", ""), f"{payload.get('result_count', 0)} results")))
+        elif kind == "web_search_failed":
+            self._put(Static(Text(f"SEARCH · failed · {payload.get('error', '')}", style=theme.RED)))
         elif kind == "verification_start":
             self._put(Static(Text("VERIFYING · running project verification", style=theme.ORANGE)))
         elif kind == "verification_result":
@@ -274,6 +281,13 @@ class TextualUI(AgentUI):
         elif kind == "rollback_plan":
             title = f"Rollback patch plan {payload.get('plan_id', '')}?"
             body = "Files: " + ", ".join(payload.get("paths", []))
+        elif kind == "network":
+            title = payload.get("title", "Approve network request?")
+            body = (
+                f"Provider: {payload.get('provider', '')}\n"
+                f"Query: {payload.get('query', '')}\n\n"
+                "Results will be treated as untrusted web data."
+            )
         elif kind == "git":
             title = payload.get("title", "Git action?")
             body = payload.get("body", "")
@@ -352,6 +366,7 @@ class TermuxCoderApp(App):
             "turn_start": "THINKING",
             "round_start": "PLANNING",
             "tool_start": "EXECUTING",
+            "web_search_started": "SEARCH",
             "approval_requested": "AWAITING APPROVAL",
             "verification_start": "VERIFYING",
             "verification_result": f"VERIFY {payload.get('status', '')}",

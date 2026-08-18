@@ -839,6 +839,8 @@ class AgentOrchestrator:
     def _approval_kind(tool_name: str) -> str:
         if tool_name in {"apply_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan"}:
             return "patch"
+        if tool_name == "web_search":
+            return "network"
         if tool_name.startswith("git_"):
             return "git"
         return "command"
@@ -876,6 +878,12 @@ class AgentOrchestrator:
             return {
                 "title": "Approve multi-file rollback",
                 "plan_id": args.get("plan_id", ""),
+            }
+        if call.name == "web_search":
+            return {
+                "title": "Approve web search?",
+                "query": args.get("query", ""),
+                "provider": args.get("provider", "duckduckgo"),
             }
         if call.name == "rollback_patch":
             return {"path": args.get("path", ""), "diff": "rollback requested"}

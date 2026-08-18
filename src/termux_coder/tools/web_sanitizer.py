@@ -45,6 +45,7 @@ class WebSanitizer:
 
         text = _CONTROL_CHARS_RE.sub("", text)
         text = re.sub(r"\s+", " ", text).strip()
+        text = re.sub(r"\s+([,.;:!?])", r"\1", text)
         injection = any(pattern.search(text) for pattern in _INJECTION_PATTERNS)
         limit = max_chars if max_chars is not None else cls.MAX_CHARS
         if limit < 1:
