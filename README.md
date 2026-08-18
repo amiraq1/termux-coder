@@ -28,12 +28,15 @@
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
 | TERMUX_CODER_ORCHESTRATOR | — | 0 |
+| TERMUX_CODER_SINGLE_TOOL_CALLS | — | 1 |
 | TERMUX_CODER_WEB_SEARCH | — | 1 |
 | TERMUX_CODER_RESEARCH_AUTO | — | 1 |
 | TERMUX_CODER_SEARCH_PROVIDER | — | duckduckgo |
 | TERMUX_CODER_SEARCH_TIMEOUT | — | 10 seconds |
 | TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES | — | 500000 |
 | TERMUX_CODER_SEARCH_MAX_RESULTS | — | 5 |
+
+يُرسل `TERMUX_CODER_SINGLE_TOOL_CALLS=1` قيمة `parallel_tool_calls=false` لمزود OpenAI-compatible، وهو الوضع المناسب لنماذج Llama المحلية التي لا تقبل عدة tool calls في الاستجابة نفسها. يمكن ضبطه إلى `0` فقط مع مزود يدعم الاستدعاءات المتوازية.
 
 ملف جاهز: ~/termux-coder/env_nvidia.sh (اقتباسات إنجليزية فقط!)
 ثم: echo "source ~/termux-coder/env_nvidia.sh" >> ~/.bashrc

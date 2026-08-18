@@ -33,6 +33,8 @@ REPAIR_SIGNALS = (
 # fast = استكشاف قرائي فقط؛ أي تعديل/تنفيذ حصري لـ smart
 FAST_EXCLUDE = {
     "apply_patch",
+    "apply_symbol_patch",
+    "apply_patch_plan",
     "write_file",
     "delete_file",
     "run_command",
@@ -101,5 +103,5 @@ class ModelRouter:
         return self.smart_label if tier == "smart" else self.fast_label
 
     def note_edit(self, tool_name: str) -> None:
-        if tool_name in {"apply_patch", "git_commit", "git_restore"}:
+        if tool_name in {"apply_patch", "apply_symbol_patch", "apply_patch_plan", "write_file", "delete_file", "git_commit", "git_restore"}:
             self.edit_mode = True

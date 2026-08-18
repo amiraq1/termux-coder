@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 
 from openai import AsyncOpenAI
@@ -24,6 +25,9 @@ class OpenAICompatProvider:
             raise RuntimeError("OPENAI_BASE_URL فارغ.")
 
         self.model = model
+        self.single_tool_calls = os.environ.get(
+            "TERMUX_CODER_SINGLE_TOOL_CALLS", "1"
+        ) == "1"
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def chat_stream(self, messages: list[dict], tools: list[dict], on_token) -> dict:
@@ -33,8 +37,6 @@ class OpenAICompatProvider:
         يمكن تعطيل الإرسال عبر ``TERMUX_CODER_NATIVE_TOOLS=0``، وتتكفل طبقة
         Recovery باستخراج الاستدعاء النصي في Orchestrator/Agent.
         """
-        import os
-
         native_tools = os.environ.get("TERMUX_CODER_NATIVE_TOOLS", "1") == "1"
         request = {
             "model": self.model,
@@ -44,6 +46,10 @@ class OpenAICompatProvider:
         if native_tools and tools:
             request["tools"] = tools
             request["tool_choice"] = "auto"
+            if self.single_tool_calls:
+                # llama.cpp-compatible servers and some prompt templates reject
+                # parallel tool calls even when the API advertises OpenAI shape.
+                request["parallel_tool_calls"] = False
 
         response = await self.client.chat.completions.create(**request)
         content = ""

@@ -33,6 +33,7 @@ Tools (use JSON format):
 Rules:
 - Use relative paths (demo.py, not /full/path)
 - Read ONLY the file you need to modify
+- Call at most one tool in each assistant response; wait for its tool result before requesting another tool.
 - Apply patch immediately after reading
 - For a targeted Python function, class, or method, use apply_symbol_patch only after reading the file; ambiguous or missing symbols are rejected.
 - For related changes across multiple files, prefer apply_patch_plan so all files are previewed and rolled back together.
