@@ -24,9 +24,11 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "get_todos":       Permission.READ,
     # أدوات كتابة
     "apply_patch":     Permission.WRITE,
+    "apply_patch_plan": Permission.WRITE,
     "write_file":      Permission.WRITE,
     "delete_file":     Permission.WRITE,
     "rollback_patch":  Permission.WRITE,
+    "rollback_patch_plan": Permission.WRITE,
     "update_todos":    Permission.WRITE,
     # أدوات تنفيذ
     "run_command":     Permission.EXECUTE,

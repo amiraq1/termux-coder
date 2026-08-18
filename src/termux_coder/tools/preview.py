@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
+from typing import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +29,14 @@ class PatchPreview(BaseModel):
     additions: int = Field(default=0, ge=0)
     removals: int = Field(default=0, ge=0)
     creates_file: bool = False
+
+
+class PatchPlanPreview(PatchPreview):
+    """Immutable aggregate preview for a multi-file patch transaction."""
+
+    plan_id: str = Field(min_length=16, max_length=64)
+    summary: str = ""
+    operations: tuple[PatchPreview, ...] = ()
 
 
 def _sha256(text: str) -> str:
@@ -119,6 +129,55 @@ class PatchPreviewService:
             additions=additions,
             removals=removals,
             creates_file=not exists,
+        )
+
+    def generate_plan(self, operations: Sequence[object], summary: str = "") -> PatchPlanPreview:
+        """Generate all file previews before any file is written."""
+        normalized: list[dict[str, str]] = []
+        paths: set[str] = set()
+        previews: list[PatchPreview] = []
+        for operation in operations:
+            if hasattr(operation, "model_dump"):
+                item = operation.model_dump()
+            elif isinstance(operation, dict):
+                item = operation
+            else:
+                raise PreviewError("patch plan contains an invalid operation")
+            rel = str(item.get("path", "")).removeprefix("./")
+            patch = str(item.get("patch", ""))
+            if not rel or rel in paths:
+                raise PreviewError("patch plan paths must be non-empty and unique")
+            paths.add(rel)
+            normalized.append({"path": rel, "patch": patch})
+            previews.append(self.generate(rel, patch))
+
+        if not previews:
+            raise PreviewError("patch plan must contain at least one operation")
+
+        canonical = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
+        plan_id = _sha256(canonical)[:24]
+        source_hash = _sha256(json.dumps(
+            [preview.source_hash for preview in previews], separators=(",", ":")
+        ))
+        patch_hash = _sha256(canonical)
+        result_hash = _sha256(json.dumps(
+            [preview.result_hash for preview in previews], separators=(",", ":")
+        ))
+        diff = "\n".join(
+            f"### {preview.path}\n{preview.diff}" for preview in previews
+        )
+        return PatchPlanPreview(
+            path="__patch_plan__",
+            diff=diff,
+            source_hash=source_hash,
+            patch_hash=patch_hash,
+            result_hash=result_hash,
+            additions=sum(preview.additions for preview in previews),
+            removals=sum(preview.removals for preview in previews),
+            creates_file=any(preview.creates_file for preview in previews),
+            plan_id=plan_id,
+            summary=summary,
+            operations=tuple(previews),
         )
 
     @staticmethod

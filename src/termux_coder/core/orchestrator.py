@@ -197,19 +197,25 @@ class AgentOrchestrator:
             deny_reason = None
             preview = None
             preview_error = None
-            if call.name == "apply_patch" and self._preview_service is not None:
+            if call.name in {"apply_patch", "apply_patch_plan"} and self._preview_service is not None:
                 try:
-                    preview = self._preview_service.generate(
-                        str(call.arguments.get("path", "")),
-                        str(call.arguments.get("patch", "")),
-                    )
+                    if call.name == "apply_patch":
+                        preview = self._preview_service.generate(
+                            str(call.arguments.get("path", "")),
+                            str(call.arguments.get("patch", "")),
+                        )
+                    else:
+                        preview = self._preview_service.generate_plan(
+                            call.arguments.get("operations", []),
+                            str(call.arguments.get("summary", "")),
+                        )
                 except PreviewError as exc:
                     preview_error = str(exc)
                     kind = DecisionKind.DENY
                     deny_reason = preview_error
                 if preview is not None:
                     self.audit.log(
-                        "patch_preview",
+                        "patch_preview" if call.name == "apply_patch" else "patch_plan_preview",
                         turn_id=self._turn_id,
                         call_id=call.call_id,
                         path=preview.path,
@@ -218,6 +224,7 @@ class AgentOrchestrator:
                         result_hash=preview.result_hash[:16],
                         additions=preview.additions,
                         removals=preview.removals,
+                        plan_id=getattr(preview, "plan_id", None),
                     )
         else:
             kind = DecisionKind.ALLOW
@@ -413,8 +420,14 @@ class AgentOrchestrator:
         # بعد أن تحقق Orchestrator من الموافقة الخارجية.
         previous_approval = getattr(self.ctx, "orchestrator_approval_granted", False)
         previous_preview = getattr(self.ctx, "orchestrator_preview", None)
+        previous_plan_preview = getattr(self.ctx, "orchestrator_plan_preview", None)
         setattr(self.ctx, "orchestrator_approval_granted", ecall.is_ready_to_execute)
         setattr(self.ctx, "orchestrator_preview", ecall.preview)
+        setattr(
+            self.ctx,
+            "orchestrator_plan_preview",
+            ecall.preview if call.name == "apply_patch_plan" else None,
+        )
         try:
             raw = await handler(dict(call.arguments), self.ctx)
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -442,6 +455,7 @@ class AgentOrchestrator:
         finally:
             setattr(self.ctx, "orchestrator_approval_granted", previous_approval)
             setattr(self.ctx, "orchestrator_preview", previous_preview)
+            setattr(self.ctx, "orchestrator_plan_preview", previous_plan_preview)
 
         self.audit.log(
             "tool_result",
@@ -459,7 +473,7 @@ class AgentOrchestrator:
         """شغّل التحقق بعد تعديل ناجح؛ يعيد (continue, terminal_error)."""
         runner = self._verification_runner
         if runner is None or not any(
-            result.ok and result.tool in {"apply_patch", "rollback_patch", "git_restore", "git_commit"}
+            result.ok and result.tool in {"apply_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan", "git_restore", "git_commit"}
             for result in self._tool_results[-10:]
         ):
             return True, None
@@ -504,8 +518,31 @@ class AgentOrchestrator:
 
         if result.status in (VerificationStatus.PASSED, VerificationStatus.SKIPPED):
             runner.reset_repair_attempts()
+            setattr(self.ctx, "last_patch_plan_id", None)
             self._transition(TurnState.PLANNING)
             return True, None
+
+        plan_id = getattr(self.ctx, "last_patch_plan_id", None)
+        if plan_id:
+            from ..tools.transaction import rollback_plan_internal
+
+            rollback_errors = rollback_plan_internal(self.ctx, plan_id)
+            await self._on_event(
+                "patch_plan_rollback",
+                plan_id=plan_id,
+                errors=rollback_errors,
+                reason=f"verification_{result.status.value}",
+            )
+            self._transition(TurnState.FAILED)
+            if rollback_errors:
+                return False, (
+                    f"verification {result.status.value}; patch plan rollback failed: "
+                    f"{rollback_errors}"
+                )
+            return False, (
+                f"verification {result.status.value}; patch plan {plan_id} "
+                "was rolled back"
+            )
 
         if result.status == VerificationStatus.CONFIG_ERROR:
             self._transition(TurnState.FAILED)
@@ -800,7 +837,7 @@ class AgentOrchestrator:
 
     @staticmethod
     def _approval_kind(tool_name: str) -> str:
-        if tool_name in {"apply_patch", "rollback_patch"}:
+        if tool_name in {"apply_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan"}:
             return "patch"
         if tool_name.startswith("git_"):
             return "git"
@@ -819,6 +856,27 @@ class AgentOrchestrator:
                     "removals": ecall.preview.removals,
                 }
             return {"path": args.get("path", ""), "diff": args.get("patch", "")}
+        if call.name == "apply_patch_plan":
+            if ecall.preview is not None:
+                return {
+                    "title": "Approve multi-file patch plan",
+                    "plan_id": getattr(ecall.preview, "plan_id", ""),
+                    "summary": args.get("summary", ""),
+                    "diff": ecall.preview.diff,
+                    "paths": [item.path for item in getattr(ecall.preview, "operations", ())],
+                    "additions": ecall.preview.additions,
+                    "removals": ecall.preview.removals,
+                }
+            return {
+                "title": "Approve multi-file patch plan",
+                "summary": args.get("summary", ""),
+                "operations": args.get("operations", []),
+            }
+        if call.name == "rollback_patch_plan":
+            return {
+                "title": "Approve multi-file rollback",
+                "plan_id": args.get("plan_id", ""),
+            }
         if call.name == "rollback_patch":
             return {"path": args.get("path", ""), "diff": "rollback requested"}
         if call.name.startswith("git_"):

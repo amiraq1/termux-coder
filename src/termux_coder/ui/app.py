@@ -266,6 +266,14 @@ class TextualUI(AgentUI):
         if kind == "patch":
             title = f"Apply patch to {payload.get('path')}?"
             body = payload.get("diff", "")
+        elif kind == "patch_plan":
+            title = f"Apply patch plan {payload.get('plan_id', '')}?"
+            summary = payload.get("summary", "")
+            paths = ", ".join(payload.get("paths", []))
+            body = f"{summary}\nFiles: {paths}\n\n{payload.get('diff', '')}"
+        elif kind == "rollback_plan":
+            title = f"Rollback patch plan {payload.get('plan_id', '')}?"
+            body = "Files: " + ", ".join(payload.get("paths", []))
         elif kind == "git":
             title = payload.get("title", "Git action?")
             body = payload.get("body", "")

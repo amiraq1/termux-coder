@@ -10,7 +10,7 @@ from .core.agent import Agent
 from .core.registry import ToolRegistry
 from .core.session import SessionStore
 from .providers.openai_compat import OpenAICompatProvider
-from .tools import edit, fs, shell, todos, maptool, gittool, lsptool
+from .tools import edit, fs, shell, todos, maptool, gittool, lsptool, transaction
 from .ui.cli import CliUI
 
 
@@ -45,6 +45,18 @@ def build_registry() -> ToolRegistry:
         "Undo the last patch applied to a file, restoring it from backup. Requires human approval.",
         edit.RollbackPatchArgs,
         edit.rollback_patch,
+    )
+    reg.register(
+        "apply_patch_plan",
+        "Apply a reviewed multi-file SEARCH/REPLACE plan as one transaction. Requires human approval.",
+        transaction.PatchPlanArgs,
+        transaction.apply_patch_plan,
+    )
+    reg.register(
+        "rollback_patch_plan",
+        "Rollback all files changed by a patch plan. Requires human approval.",
+        transaction.RollbackPlanArgs,
+        transaction.rollback_patch_plan,
     )
     reg.register(
         "run_command",

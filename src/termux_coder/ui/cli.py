@@ -66,6 +66,14 @@ class CliUI(AgentUI):
         if kind == "patch":
             print(logo.paint(f"── proposed patch: {payload.get('path')} ──", logo.TEAL))
             print(payload.get("diff", ""))
+        elif kind == "patch_plan":
+            print(logo.paint(f"── proposed patch plan: {payload.get('plan_id')} ──", logo.TEAL))
+            print(payload.get("summary", ""))
+            print("Files: " + ", ".join(payload.get("paths", [])))
+            print(payload.get("diff", ""))
+        elif kind == "rollback_plan":
+            print(logo.paint(f"── rollback patch plan: {payload.get('plan_id')} ──", logo.TEAL))
+            print("Files: " + ", ".join(payload.get("paths", [])))
         elif kind == "git":
             print(logo.paint(f"── {payload.get('title')} ──", logo.TEAL))
             print(payload.get("body", ""))

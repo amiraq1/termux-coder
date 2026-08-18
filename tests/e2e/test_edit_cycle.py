@@ -110,3 +110,80 @@ def test_rollback_restores_content_and_mode(e2e_components):
         assert path.read_text() == original
 
     run(scenario())
+
+
+def test_multi_file_patch_plan_cycle(e2e_components):
+    async def scenario():
+        components = e2e_components
+        util = components["workspace"] / "util.py"
+        util.write_text("value = 2\n", encoding="utf-8")
+        components["state"].read_files.add("util.py")
+        components["state"].read_hashes["util.py"] = hashlib.sha256(
+            util.read_bytes()
+        ).hexdigest()
+        patches = [
+            {
+                "path": "main.py",
+                "patch": patch_text('return "Hello, " + name', 'return f"Hi, {name}"'),
+                "reason": "update greeting",
+            },
+            {
+                "path": "util.py",
+                "patch": patch_text("value = 2", "value = 20"),
+                "reason": "update shared value",
+            },
+        ]
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool(
+                    "plan1",
+                    "apply_patch_plan",
+                    {"summary": "update greeting and value", "operations": patches},
+                ),
+                MockResponse.text("Done."),
+            ],
+        )
+        result = await orch.run_turn([{"role": "user", "content": "update both files"}])
+
+        assert result.state.value == "idle"
+        assert 'f"Hi, {name}"' in (components["workspace"] / "main.py").read_text()
+        assert (components["workspace"] / "util.py").read_text() == "value = 20\n"
+
+    run(scenario())
+
+
+def test_multi_file_plan_rolls_back_when_verification_fails(e2e_components):
+    async def scenario():
+        components = e2e_components
+        workspace = components["workspace"]
+        original = (workspace / "main.py").read_text()
+        (workspace / "fail_test.py").write_text("def test_failure():\n    assert False\n", encoding="utf-8")
+        (workspace / ".termux-coder.toml").write_text(
+            "[verification]\ncommand = [\"python\", \"-m\", \"pytest\", \"-q\", \"fail_test.py\"]\ntimeout_s = 10\n",
+            encoding="utf-8",
+        )
+        patch = patch_text('return "Hello, " + name', 'return "Broken"')
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool(
+                    "plan2",
+                    "apply_patch_plan",
+                    {
+                        "summary": "intentionally failing verification",
+                        "operations": [
+                            {"path": "main.py", "patch": patch, "reason": "test rollback"}
+                        ],
+                    },
+                )
+            ],
+        )
+        result = await orch.run_turn([{"role": "user", "content": "apply and verify"}])
+
+        assert result.state.value == "failed"
+        assert (workspace / "main.py").read_text() == original
+        assert any(kind == "patch_plan_rollback" for kind, _ in components["ui"].events)
+        assert components["state"].applied_patches == []
+
+    run(scenario())
