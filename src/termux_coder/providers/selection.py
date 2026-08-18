@@ -22,6 +22,10 @@ class ProviderSpec:
     key_env: str
     base_url_env: str
     default_base_url: str
+    label: str = ""
+    category: str = "Providers"
+    popular: bool = False
+    models: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -38,26 +42,43 @@ class ProviderSelection:
 
 PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "nvidia": ProviderSpec(
-        "nvidia", "NVIDIA_API_KEY", "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"
+        "nvidia", "NVIDIA_API_KEY", "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1",
+        "NVIDIA NIM", "Providers", False,
+        ("meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"),
     ),
     "openai": ProviderSpec(
-        "openai", "OPENAI_API_KEY", "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        "openai", "OPENAI_API_KEY", "OPENAI_BASE_URL", "https://api.openai.com/v1",
+        "OpenAI (ChatGPT Plus/Pro or API key)", "Popular", True,
+        ("gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"),
     ),
     "openrouter": ProviderSpec(
-        "openrouter", "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+        "openrouter", "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1",
+        "OpenRouter", "Providers", False, (),
     ),
     "groq": ProviderSpec(
-        "groq", "GROQ_API_KEY", "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
+        "groq", "GROQ_API_KEY", "GROQ_BASE_URL", "https://api.groq.com/openai/v1",
+        "Groq", "Popular", True,
+        ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
     ),
     "together": ProviderSpec(
-        "together", "TOGETHER_API_KEY", "TOGETHER_BASE_URL", "https://api.together.xyz/v1"
+        "together", "TOGETHER_API_KEY", "TOGETHER_BASE_URL", "https://api.together.xyz/v1",
+        "Together AI", "Providers", False, (),
     ),
 }
 
 DEFAULT_AUTO_ORDER = ("nvidia", "openai", "openrouter", "groq", "together")
 _CONFIG_FILENAMES = ("providers.json", "providers.yaml", "providers.yml")
 _ALLOWED_PROVIDER_FIELDS = frozenset(
-    {"name", "key_env", "base_url_env", "default_base_url"}
+    {
+        "name",
+        "label",
+        "category",
+        "popular",
+        "models",
+        "key_env",
+        "base_url_env",
+        "default_base_url",
+    }
 )
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _ENV_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
@@ -194,12 +215,38 @@ def load_custom_providers(
         if name in PROVIDER_SPECS or name in custom:
             raise _invalid_config("provider name is duplicated or built-in")
 
+        label = item.get("label", name)
+        if not isinstance(label, str) or not label.strip() or len(label) > 100:
+            raise _invalid_config("label must be a non-empty string of at most 100 characters")
+        category = item.get("category", "Providers")
+        if category not in {"Popular", "Providers"}:
+            raise _invalid_config("category must be Popular or Providers")
+        popular = item.get("popular", category == "Popular")
+        if not isinstance(popular, bool):
+            raise _invalid_config("popular must be a boolean")
+        raw_models = item.get("models", [])
+        if not isinstance(raw_models, list) or not all(
+            isinstance(model, str) and model.strip() and len(model) <= 150
+            for model in raw_models
+        ):
+            raise _invalid_config("models must be a list of non-empty strings")
+        models = tuple(model.strip() for model in raw_models)
+
         key_env = _validate_env_name(item.get("key_env"), "key_env")
         base_url_env = _validate_env_name(item.get("base_url_env"), "base_url_env", required=False)
         if not base_url_env:
             base_url_env = f"{name.upper().replace('-', '_')}_BASE_URL"
         default_base_url = _validate_base_url(item.get("default_base_url"))
-        custom[name] = ProviderSpec(name, key_env, base_url_env, default_base_url)
+        custom[name] = ProviderSpec(
+            name,
+            key_env,
+            base_url_env,
+            default_base_url,
+            label.strip(),
+            category,
+            popular,
+            models,
+        )
 
     raw_order = data.get("auto_order")
     if raw_order is None:
@@ -212,6 +259,32 @@ def load_custom_providers(
     if len(set(order)) != len(order) or any(name not in available for name in order):
         raise _invalid_config("auto_order contains an unknown or duplicated provider")
     return custom, order
+
+
+def provider_catalog(
+    config_path: str | Path | None = None,
+    *,
+    workspace: str | Path | None = None,
+) -> tuple[dict[str, ProviderSpec], tuple[str, ...]]:
+    """Return built-in and custom provider specs for UI/catalog consumers."""
+    custom_specs, configured_order = load_custom_providers(
+        config_path, workspace=workspace
+    )
+    specs = {**PROVIDER_SPECS, **custom_specs}
+    order = configured_order or (*DEFAULT_AUTO_ORDER, *custom_specs)
+    return specs, order
+
+
+def configured_provider_names(
+    specs: Mapping[str, ProviderSpec],
+    *,
+    legacy_api_key: str = "",
+) -> set[str]:
+    """Return configured provider names without exposing key values."""
+    configured = {name for name, spec in specs.items() if _key_for(spec) not in {"", "EMPTY"}}
+    if legacy_api_key.strip() and "openai" in specs and "openai" not in configured:
+        configured.add("openai")
+    return configured
 
 
 def select_provider(
@@ -228,16 +301,12 @@ def select_provider(
     providers are loaded from ``config_path`` or from the workspace/home
     ``.termux_coder/providers.{json,yaml,yml}`` discovery locations.
     """
-    custom_specs, configured_order = load_custom_providers(
-        config_path, workspace=workspace
-    )
-    specs = {**PROVIDER_SPECS, **custom_specs}
+    specs, auto_order = provider_catalog(config_path, workspace=workspace)
     requested = (requested or "auto").strip().lower()
     if requested != "auto" and requested not in specs:
         allowed = ", ".join(("auto", *specs))
         raise ValueError(f"unsupported provider {requested!r}; choose one of {allowed}")
 
-    auto_order = configured_order or (*DEFAULT_AUTO_ORDER, *custom_specs)
     names = (requested,) if requested != "auto" else auto_order
     for name in names:
         spec = specs[name]

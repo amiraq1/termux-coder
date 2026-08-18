@@ -110,6 +110,10 @@ export TERMUX_CODER_PROVIDERS_CONFIG="$HOME/.termux_coder/providers.json"
   "providers": [
     {
       "name": "myprovider",
+      "label": "My Provider",
+      "category": "Popular",
+      "popular": true,
+      "models": ["my-model-small", "my-model-large"],
       "key_env": "MYPROVIDER_API_KEY",
       "base_url_env": "MYPROVIDER_BASE_URL",
       "default_base_url": "https://api.example.com/v1"
@@ -119,7 +123,7 @@ export TERMUX_CODER_PROVIDERS_CONFIG="$HOME/.termux_coder/providers.json"
 }
 ```
 
-`key_env` و`base_url_env` هما اسما متغيري البيئة فقط؛ لا تضع قيمة المفتاح داخل الملف. يمكن حذف `base_url_env` عند الاكتفاء بـ`default_base_url`. إذا لم يوجد `auto_order` تُضاف المزودات المخصصة بعد ترتيب المزودات المدمجة. المتغيرات المسبوقة بـ`TERMUX_CODER_` لها أولوية أعلى، مثل `TERMUX_CODER_MYPROVIDER_API_KEY`.
+`key_env` و`base_url_env` هما اسما متغيري البيئة فقط؛ لا تضع قيمة المفتاح داخل الملف. يمكن حذف `base_url_env` عند الاكتفاء بـ`default_base_url`. الحقول `label` و`category` و`popular` و`models` اختيارية وتستخدم لعرض القائمة التفاعلية؛ `category` يقبل `Popular` أو `Providers`. إذا لم يوجد `auto_order` تُضاف المزودات المخصصة بعد ترتيب المزودات المدمجة. المتغيرات المسبوقة بـ`TERMUX_CODER_` لها أولوية أعلى، مثل `TERMUX_CODER_MYPROVIDER_API_KEY`.
 
 ملفات YAML اختيارية وتتطلب تثبيت `PyYAML`؛ JSON هو الخيار الموصى به في Termux لأنه لا يحتاج dependency إضافية. يرفض المحمل الحقول غير المعروفة، وحقول `shell` أو `headers` أو قيم المفاتيح، والروابط التي تحتوي credentials أو query أو fragment. هذا المسار لا يدعم إلا endpoints المتوافقة مع OpenAI API؛ البروتوكولات المختلفة تحتاج adapter مستقل.
 
@@ -140,6 +144,9 @@ export TERMUX_CODER_PROVIDERS_CONFIG="$HOME/.termux_coder/providers.json"
     shift+tab   تبديل الوضع: accept edits ↔ plan mode
     ctrl+o      توسيع آخر كتلة قابلة للطي
     ctrl+t      إظهار/إخفاء شجرة الملفات
+    ctrl+a      فتح قائمة اختيار المزود والنموذج في TUI
+
+عند تشغيل TUI، افتح القائمة عبر `Ctrl+A`. اكتب في `Search` لتصفية المزودين، استخدم الأسهم للتنقل و`Enter` للاختيار و`Esc` للإغلاق. تظهر علامة `✓` بجانب المزود الذي يملك مفتاحًا مهيأً. بعد اختيار المزود تظهر قائمة النماذج المعرفة في حقل `models` داخل ملف الإعدادات؛ إذا لم توجد، يعرض الوكيل النموذج الحالي فقط.
 
 ## نموذج الأمان
 

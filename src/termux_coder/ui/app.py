@@ -322,6 +322,7 @@ class TermuxCoderApp(App):
         Binding("ctrl+o", "toggle_expand", "expand", show=False),
         Binding("ctrl+t", "toggle_tree", "tree", show=False),
         Binding("ctrl+p", "focus_prompt", "prompt", show=False),
+        Binding("ctrl+a", "open_provider_picker", "provider", show=False),
     ]
     CSS = """
     Screen { background: #07090d; color: #e7e9ee; }
@@ -412,6 +413,7 @@ class TermuxCoderApp(App):
         text = Text()
         text.append("◈ agent", style=f"bold {theme.TEAL}")
         text.append(f"  ·  {project}", style=theme.WHITE)
+        text.append(f"  ·  {self.agent.settings.provider}", style=theme.DIM)
         text.append(f"  ·  {self.agent.settings.model}", style=theme.DIM)
         text.append(
             f"  ·  {self.agent.settings.security_mode}",
@@ -457,6 +459,100 @@ class TermuxCoderApp(App):
 
     def action_focus_prompt(self) -> None:
         self.query_one("#prompt", Input).focus()
+
+    def action_open_provider_picker(self) -> None:
+        from ..providers.selection import configured_provider_names, provider_catalog
+        from .provider_picker import ProviderPickerScreen
+
+        try:
+            specs, order = provider_catalog(
+                self.settings.providers_config_path or None,
+                workspace=self.settings.workspace,
+            )
+            configured = configured_provider_names(
+                specs,
+                legacy_api_key=self.settings.openai_api_key,
+            )
+        except (OSError, ValueError) as exc:
+            self.query_one("#feed", ChatFeed).mount(
+                Static(Text(f"provider config error: {exc}", style=theme.RED))
+            )
+            return
+
+        self.push_screen(
+            ProviderPickerScreen(
+                specs,
+                order,
+                configured,
+                current=self.settings.provider,
+            ),
+            self._on_provider_selected,
+        )
+
+    def _on_provider_selected(self, provider_name: str | None) -> None:
+        if not provider_name:
+            return
+        from .provider_picker import ModelPickerScreen
+
+        try:
+            from ..providers.selection import configured_provider_names, provider_catalog
+
+            specs, _ = provider_catalog(
+                self.settings.providers_config_path or None,
+                workspace=self.settings.workspace,
+            )
+            spec = specs[provider_name]
+            configured = configured_provider_names(
+                specs,
+                legacy_api_key=self.settings.openai_api_key,
+            )
+            if provider_name not in configured:
+                self.query_one("#feed", ChatFeed).mount(
+                    Static(
+                        Text(
+                            f"provider not configured: set {spec.key_env}",
+                            style=theme.ORANGE,
+                        )
+                    )
+                )
+                return
+            models = spec.models or (self.settings.model,)
+            self.push_screen(
+                ModelPickerScreen(spec.label or provider_name, models, self.settings.model),
+                lambda model: self._on_model_selected(provider_name, model),
+            )
+        except (KeyError, OSError, ValueError) as exc:
+            self.query_one("#feed", ChatFeed).mount(
+                Static(Text(f"provider selection error: {exc}", style=theme.RED))
+            )
+
+    def _on_model_selected(self, provider_name: str, model: str | None) -> None:
+        if not model:
+            return
+        from ..cli import build_agent
+
+        try:
+            self.settings.provider = provider_name
+            self.settings.model = model
+            self.agent = build_agent(
+                self.settings,
+                TextualUI(self),
+                store=self.store,
+                resume_id=self.agent.session_id,
+            )
+            self._render_header()
+            self.query_one("#feed", ChatFeed).mount(
+                Static(
+                    Text(
+                        f"connected: {provider_name} · {model}",
+                        style=theme.TEAL,
+                    )
+                )
+            )
+        except Exception as exc:
+            self.query_one("#feed", ChatFeed).mount(
+                Static(Text(f"provider connection failed: {exc}", style=theme.RED))
+            )
 
     # ── Turn lifecycle ─────────────────────────────────────
     def on_input_submitted(self, event: Input.Submitted) -> None:

@@ -229,3 +229,37 @@ def test_yaml_requires_optional_dependency_or_loads(tmp_path, monkeypatch):
     else:
         assert selected.name == "yamlprovider"
         assert selected.base_url == "https://yaml.example/v1"
+
+
+def test_custom_catalog_metadata_is_loaded(tmp_path):
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "edge", "label": "Edge Cloud", '
+        '"category": "Popular", "popular": true, '
+        '"models": ["edge-small", "edge-large"], '
+        '"key_env": "EDGE_API_KEY", '
+        '"default_base_url": "https://edge.example/v1"}]}',
+        encoding="utf-8",
+    )
+
+    from termux_coder.providers.selection import provider_catalog
+
+    specs, order = provider_catalog(config_path=config)
+
+    assert order[-1] == "edge"
+    assert specs["edge"].label == "Edge Cloud"
+    assert specs["edge"].category == "Popular"
+    assert specs["edge"].models == ("edge-small", "edge-large")
+
+
+def test_custom_catalog_rejects_invalid_models(tmp_path):
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "edge", "key_env": "EDGE_API_KEY", '
+        '"default_base_url": "https://edge.example/v1", '
+        '"models": ["ok", 42]}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="models"):
+        select_provider("auto", config_path=config)
