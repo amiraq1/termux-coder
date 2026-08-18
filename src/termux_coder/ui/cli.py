@@ -50,6 +50,10 @@ class CliUI(AgentUI):
             elif kind == "tool_denied":
                 reason = str(payload.get("reason") or "denied by policy")
                 logo.ctrl("denied", reason)
+            elif kind == "tool_suppressed":
+                tool = str(payload.get("tool") or "operation")
+                reason = str(payload.get("reason") or "not relevant to this request")
+                logo.ctrl("tool skipped", f"{tool}: {reason}")
             elif kind == "orchestrator_result":
                 state = str(payload.get("state") or "failed")
                 error = str(payload.get("error") or "")
@@ -99,6 +103,9 @@ class CliUI(AgentUI):
         elif kind == "tool_denied":
             tool = payload.get("tool") or "operation"
             logo.ctrl("denied", f"{tool}: {payload.get('reason', '')}")
+        elif kind == "tool_suppressed":
+            tool = payload.get("tool") or "operation"
+            logo.ctrl("tool skipped", f"{tool}: {payload.get('reason', '')}")
         elif kind == "approval_requested":
             count = len(payload.get("calls", []))
             logo.ctrl("approval", f"{count} operation(s) pending")

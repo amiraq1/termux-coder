@@ -143,6 +143,45 @@ MUTATION_TOOLS = frozenset({
     "delete_file",
 })
 
+WORKSPACE_TOOLS = frozenset({
+    "read_file",
+    "list_dir",
+    "search_text",
+    "repo_map",
+    "git_status",
+    "git_diff",
+})
+
+WORKSPACE_INTENT_MARKERS = (
+    "file",
+    "files",
+    "folder",
+    "directory",
+    "workspace",
+    "repository",
+    "repo",
+    "code",
+    "path",
+    "read",
+    "open",
+    "list",
+    "search",
+    "find",
+    "inspect",
+    "project",
+    "source",
+    "map",
+    "مجلد",
+    "ملف",
+    "مشروع",
+    "مستودع",
+    "كود",
+    "مسار",
+    "اقرأ",
+    "اعرض",
+    "ابحث",
+)
+
 
 class AgentOrchestrator:
     """
@@ -379,6 +418,66 @@ class AgentOrchestrator:
 
     def _is_cancelled(self) -> bool:
         return self._cancel_event.is_set()
+
+    @staticmethod
+    def _path_looks_explicit(path: str) -> bool:
+        value = path.strip()
+        if value in {"", ".", "..", "./", "../"}:
+            return value in {".", "..", "./", "../"}
+        return "/" in value or "\\" in value or "." in value.rsplit("/", 1)[-1]
+
+    def _workspace_call_is_scoped(self, call: ToolCall, user_text: str) -> bool:
+        """Require an explicit workspace intent before file tools may run."""
+        if call.name not in WORKSPACE_TOOLS:
+            return True
+        lowered = user_text.casefold()
+        if any(marker in lowered for marker in WORKSPACE_INTENT_MARKERS):
+            return True
+        path = str(call.arguments.get("path", "")).strip()
+        # Empty paths use the tool's documented workspace default (usually ".").
+        # Only non-empty, unscoped values such as a bare conversational word
+        # should be blocked here.
+        if not path:
+            return True
+        return self._path_looks_explicit(path)
+
+    def _suppress_unscoped_workspace_calls(
+        self,
+        provider_response: ProviderResponse,
+        user_text: str,
+    ) -> tuple[ProviderResponse, list[ToolCall]]:
+        suppressed = [
+            call
+            for call in provider_response.tool_calls
+            if not self._workspace_call_is_scoped(call, user_text)
+        ]
+        if not suppressed:
+            return provider_response, []
+
+        suppressed_ids = {call.call_id for call in suppressed}
+        allowed_calls = [
+            call for call in provider_response.tool_calls
+            if call.call_id not in suppressed_ids
+        ]
+        assistant_message = dict(provider_response.assistant_message)
+        raw_calls = assistant_message.get("tool_calls")
+        if raw_calls:
+            filtered_raw = [
+                raw for raw in raw_calls
+                if str(raw.get("id", "")) not in suppressed_ids
+            ]
+            if filtered_raw:
+                assistant_message["tool_calls"] = filtered_raw
+            else:
+                assistant_message.pop("tool_calls", None)
+
+        return ProviderResponse(
+            assistant_message=assistant_message,
+            tool_calls=allowed_calls,
+            finish_reason="tool_calls" if allowed_calls else "stop",
+            usage=provider_response.usage,
+            provider_id=provider_response.provider_id,
+        ), suppressed
 
     # ── بناء ToolCall من مخرجات النموذج الخام ────────────────
 
@@ -861,6 +960,23 @@ class AgentOrchestrator:
 
                 # تحويل الاستجابة الخام إلى ProviderResponse
                 provider_resp = self._adapt_response(response, self._turn_id)
+                provider_resp, suppressed_calls = self._suppress_unscoped_workspace_calls(
+                    provider_resp,
+                    user_text,
+                )
+                for suppressed_call in suppressed_calls:
+                    self.audit.log(
+                        "tool_suppressed",
+                        turn_id=self._turn_id,
+                        call_id=suppressed_call.call_id,
+                        tool=suppressed_call.name,
+                        reason="workspace tool requires explicit file or repository intent",
+                    )
+                    await self._on_event(
+                        "tool_suppressed",
+                        tool=suppressed_call.name,
+                        reason="workspace tool requires explicit file or repository intent",
+                    )
 
                 # ── حفظ رسالة المساعد أولاً (ضروري للـ API) ──
                 self._append_message(messages, provider_resp.assistant_message)

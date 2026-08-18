@@ -276,6 +276,11 @@ class TextualUI(AgentUI):
                 f"DENIED · {payload.get('tool', '')} · {payload.get('reason', '')}",
                 style=theme.RED,
             )))
+        elif kind == "tool_suppressed":
+            self._put(Static(Text(
+                f"TOOL · {payload.get('tool', '')} skipped · {payload.get('reason', '')}",
+                style=theme.DIM,
+            )))
         elif kind == "approval_requested":
             self._put(Static(Text(
                 f"approval requested · {len(payload.get('calls', []))} operation(s)",

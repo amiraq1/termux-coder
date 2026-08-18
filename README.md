@@ -202,6 +202,12 @@ export TERMUX_CODER_TUI_MODEL_NEXT_KEY='alt+j'
 
 يكون حقل السؤال مركزًا تلقائيًا عند بدء TUI عندما تكون قيمة `TERMUX_CODER_TUI_AUTO_FOCUS=1`، ويمكن إعادة التركيز عليه عبر `Ctrl+P`. إذا لم تظهر لوحة Android الناعمة، فهذه وظيفة يتحكم بها تطبيق Termux وإعدادات Android، وليست شيئًا يستطيع Python أو Textual إجباره بشكل موثوق. فعّل لوحة المفاتيح الناعمة من إعدادات Termux/Android، أو استخدم شريط **Extra Keys** للوصول إلى `CTRL` و`ESC` والأسهم. لتعطيل التركيز التلقائي استخدم `TERMUX_CODER_TUI_AUTO_FOCUS=0`.
 
+## حارس نطاق أدوات مساحة العمل
+
+لا تُنفَّذ أدوات `read_file` و`list_dir` و`search_text` و`repo_map` وعمليات Git القرائية لمجرد أن المستخدم كتب كلمة عامة أو اسمًا قد يشبه اسم ملف. يجب أن يحتوي الطلب على نية واضحة مرتبطة بالملفات أو المستودع، مثل `read main.py` أو `list the workspace`. إذا حاول النموذج تمرير استدعاء غير مرتبط، يظهر في الواجهة كـ`tool skipped` ويُسجَّل في AuditLog دون تنفيذ الأداة.
+
+هذا الحارس لا يستبدل `WorkspaceJail` أو `PolicyEngine`؛ بل يضيف طبقة ارتباط دلالي قبل التنفيذ، ويظل المسار الطبيعي لطلبات الملفات الصريحة متاحًا.
+
 ## نموذج الأمان
 
 - Workspace Jail: resolve + is_relative_to (لا startswith).
