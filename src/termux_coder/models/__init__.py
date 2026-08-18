@@ -1,4 +1,5 @@
 """models — عقود البيانات الموحَّدة."""
+from .research import EvidenceItem, ResearchPacket, TaskIntent
 from .contracts import (
     ApprovalGrant,
     DecisionKind,
@@ -19,4 +20,7 @@ __all__ = [
     "ToolCall",
     "ToolError",
     "ToolResult",
+    "EvidenceItem",
+    "ResearchPacket",
+    "TaskIntent",
 ]
