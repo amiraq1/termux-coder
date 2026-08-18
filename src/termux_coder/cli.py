@@ -147,20 +147,88 @@ def _friendly_reply(text: str) -> str | None:
     return None
 
 
+# Read-only tools whose successful data must be surfaced verbatim.
+_READ_TOOLS = frozenset({"list_dir", "read_file", "search_text", "web_search", "fetch_page"})
+# Max lines shown inline for read_file; longer files get a line-count summary.
+_READ_FILE_INLINE_LINES = 20
+# Max chars shown per web result snippet.
+_SNIPPET_MAX = 200
+
+
+def _format_web_results(raw: str | list) -> str:
+    """Return a compact human-readable summary from a web_search ToolResult.
+
+    web_search returns model_dump_json() (a JSON string), *not* a Python list.
+    We parse it here so the user sees only titles, URLs, and short snippets —
+    never the raw JSON payload.
+    """
+    import json
+    if isinstance(raw, str):
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            return raw[:500]
+        # WebSearchResult shape: {"results": [{"title", "url", "snippet"}, ...]}
+        items = obj.get("results") or []
+        if not items:
+            return "no results"
+        lines = []
+        for idx, r in enumerate(items):
+            title = (r.get("title") or "Untitled")[:120]
+            url = (r.get("url") or "")[:200]
+            snippet = (r.get("snippet") or "").strip()[:_SNIPPET_MAX]
+            lines.append(f"{idx + 1}. {title}\n   {url}")
+            if snippet:
+                lines.append(f"   {snippet}")
+        return "\n".join(lines)
+    # Fallback: legacy list-of-dicts path (kept for mock tests)
+    if isinstance(raw, list):
+        lines = []
+        for idx, r in enumerate(raw):
+            if isinstance(r, dict):
+                title = (r.get("title") or "Untitled")[:120]
+                url = (r.get("url") or "")[:200]
+                snippet = (r.get("snippet") or "").strip()[:_SNIPPET_MAX]
+                lines.append(f"{idx + 1}. {title}\n   {url}")
+                if snippet:
+                    lines.append(f"   {snippet}")
+        return "\n".join(lines) or "no results"
+    return str(raw)[:500]
+
 
 def _format_final_answer(agent, turn_result) -> str:
-    """Ensure actual read/search data or errors are shown when the model output is generic or missing."""
+    """Return the answer text to print after a completed orchestrated turn.
+
+    Invariants
+    ----------
+    * If the turn produced successful read/search ToolResults their data is
+      always shown — the model text is appended only when it adds useful context.
+    * If all tools failed, the failure reasons are shown and the model text
+      (which could be a fabricated success claim) is suppressed.
+    * If no tools ran AND there is no final_text this is an orchestrated turn
+      that produced nothing — we return an explicit error instead of falling
+      back to stale history from a previous round.
+    * _latest_assistant_text() is used ONLY for the non-orchestrated path
+      (turn_result is None), i.e. when the legacy Agent path handled the turn.
+    """
+    # ── Non-orchestrated path (legacy Agent) ─────────────────────────────
     if not turn_result:
         return _latest_assistant_text(agent)
 
     final_text = (turn_result.final_text or "").strip()
 
+    # ── No tools ran at all ───────────────────────────────────────────────
     if not turn_result.tool_results:
-        return final_text or _latest_assistant_text(agent)
+        if final_text:
+            return final_text
+        # Orchestrated turn ended with neither tool output nor model text.
+        # Returning stale history would fabricate a false success, so refuse.
+        return "error: no answer or tool result was produced for this turn"
 
     successful = [tr for tr in turn_result.tool_results if tr.ok]
     failed = [tr for tr in turn_result.tool_results if not tr.ok]
 
+    # ── All tools denied or failed ────────────────────────────────────────
     if not successful:
         lines = []
         for tr in failed:
@@ -171,46 +239,49 @@ def _format_final_answer(agent, turn_result) -> str:
                     lines.append(f"error: {tr.error.message}")
             else:
                 lines.append(f"error: {tr.tool} failed")
+        # Suppress model text: it may claim success for a tool that was denied.
         return "\n".join(lines)
 
-    read_outputs = []
+    # ── Format successful read/search outputs ─────────────────────────────
+    read_outputs: list[str] = []
     for tr in successful:
         if tr.tool in ("list_dir", "search_text"):
             data = tr.data if isinstance(tr.data, str) else str(tr.data)
             read_outputs.append(f"[{tr.tool}]\n{data.strip()}")
         elif tr.tool == "read_file":
             data = tr.data if isinstance(tr.data, str) else str(tr.data)
-            lines = data.splitlines()
-            if len(lines) > 20:
-                read_outputs.append(f"[read_file]\n(file content length: {len(lines)} lines)")
+            file_lines = data.splitlines()
+            if len(file_lines) > _READ_FILE_INLINE_LINES:
+                read_outputs.append(
+                    f"[read_file] ({len(file_lines)} lines — showing first "
+                    f"{_READ_FILE_INLINE_LINES})\n"
+                    + "\n".join(file_lines[:_READ_FILE_INLINE_LINES])
+                )
             else:
                 read_outputs.append(f"[read_file]\n{data.strip()}")
         elif tr.tool in ("web_search", "fetch_page"):
-            if isinstance(tr.data, list):
-                res = []
-                for idx, r in enumerate(tr.data):
-                    if isinstance(r, dict):
-                        res.append(f"{idx+1}. {r.get('title', 'Untitled')} - {r.get('url', '')}")
-                read_outputs.append(f"[{tr.tool}]\n" + "\n".join(res))
-            else:
-                read_outputs.append(f"[{tr.tool}]\n{str(tr.data).strip()}")
+            formatted = _format_web_results(tr.data)
+            read_outputs.append(f"[{tr.tool}]\n{formatted}")
 
     if read_outputs:
-        if not final_text:
-            return "\n\n".join(read_outputs)
+        # Always surface the tool data.
+        # Append the model text only when it looks substantive — i.e., it
+        # is not blank and is longer than a short transition sentence.
+        # We do NOT inspect keywords; length + presence of tool data is enough.
+        data_block = "\n\n".join(read_outputs)
+        if final_text and len(final_text) > 60:
+            return data_block + "\n\n" + final_text
+        return data_block
 
-        lower_text = final_text.casefold()
-        generic = len(final_text) < 150 and any(kw in lower_text for kw in ("this function", "listing the files", "search the", "call lists"))
-        if generic:
-            return "\n\n".join(read_outputs)
-
-        return final_text + "\n\n" + "\n\n".join(read_outputs)
-
-    return final_text or _latest_assistant_text(agent)
+    # Successful mutation or other non-read tool — trust the model text.
+    return final_text or "error: no answer was produced for this turn"
 
 
 def _latest_assistant_text(agent) -> str:
-
+    """Walk backward through the full message history and return the last
+    non-empty assistant text.  Only used for the legacy (non-orchestrated)
+    code path — never as a fallback inside an orchestrated turn.
+    """
     for message in reversed(agent.messages):
         if message.get("role") == "assistant":
             content = str(message.get("content") or "").strip()
