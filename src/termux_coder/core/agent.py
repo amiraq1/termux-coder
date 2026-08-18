@@ -142,16 +142,19 @@ class Agent:
                 if self.settings.verification_enabled else None
             ),
         )
-        result = await self.orchestrator.run_turn(
-            self.messages,
-            on_token=self.ui.on_token,
-        )
-        if result.state != TurnState.IDLE:
-            await self.ui.on_event(
-                "orchestrator_result",
-                state=result.state.value,
-                error=result.error or "",
+        try:
+            result = await self.orchestrator.run_turn(
+                self.messages,
+                on_token=self.ui.on_token,
             )
+            if result.state != TurnState.IDLE:
+                await self.ui.on_event(
+                    "orchestrator_result",
+                    state=result.state.value,
+                    error=result.error or "",
+                )
+        finally:
+            await self.ui.on_event("turn_end")
 
     async def close(self) -> None:
         if self.lsp is not None:
