@@ -77,7 +77,8 @@ class CliUI(AgentUI):
         elif kind == "network":
             print(logo.paint(f"── {payload.get('title', 'Approve network request?')} ──", logo.TEAL))
             print(f"Provider: {payload.get('provider', '')}")
-            print(f"Query: {payload.get('query', '')}")
+            target = payload.get("query") or payload.get("url", "")
+            print(f"Target: {target}")
             print("Results are untrusted web data.")
         elif kind == "git":
             print(logo.paint(f"── {payload.get('title')} ──", logo.TEAL))

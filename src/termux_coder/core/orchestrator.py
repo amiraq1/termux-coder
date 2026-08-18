@@ -44,6 +44,7 @@ from .verification import VerificationRunner, VerificationStatus
 
 class TurnState(str, Enum):
     IDLE              = "idle"
+    RESEARCHING       = "researching"
     PLANNING          = "planning"
     AWAITING_APPROVAL = "awaiting_approval"
     EXECUTING         = "executing"
@@ -55,10 +56,12 @@ class TurnState(str, Enum):
 # الانتقالات المسموحة فقط
 _ALLOWED_TRANSITIONS: dict[TurnState, set[TurnState]] = {
     TurnState.IDLE:              {TurnState.PLANNING},
-    TurnState.PLANNING:          {TurnState.PLANNING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
+    TurnState.RESEARCHING:       {TurnState.RESEARCHING, TurnState.PLANNING, TurnState.AWAITING_APPROVAL,
+                                  TurnState.CANCELLED, TurnState.FAILED},
+    TurnState.PLANNING:          {TurnState.PLANNING, TurnState.RESEARCHING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
-    TurnState.AWAITING_APPROVAL: {TurnState.EXECUTING, TurnState.CANCELLED, TurnState.FAILED},
-    TurnState.EXECUTING:         {TurnState.EXECUTING, TurnState.PLANNING, TurnState.VERIFYING,
+    TurnState.AWAITING_APPROVAL: {TurnState.RESEARCHING, TurnState.EXECUTING, TurnState.CANCELLED, TurnState.FAILED},
+    TurnState.EXECUTING:         {TurnState.EXECUTING, TurnState.RESEARCHING, TurnState.PLANNING, TurnState.VERIFYING,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
     TurnState.VERIFYING:         {TurnState.PLANNING, TurnState.IDLE,
                                   TurnState.CANCELLED, TurnState.FAILED},
@@ -148,6 +151,7 @@ class AgentOrchestrator:
         self._pending_approvals: dict[str, EvaluatedToolCall] = {}
         self._cancel_event = asyncio.Event()
         self._tool_results: list[ToolResult] = []
+        self._research_tools = {"web_search", "fetch_page"}
 
     # ── واجهة الحالة ─────────────────────────────────────────
 
@@ -669,6 +673,46 @@ class AgentOrchestrator:
                 # ── تقييم السياسة لكل استدعاء ────────────────
                 evaluated = [self._evaluate_call(c) for c in provider_resp.tool_calls]
 
+                # Research Gate: البحث والجلب مرحلة معرفة مستقلة. لا نسمح
+                # بتعديل الملفات أو تنفيذ أوامر في نفس دفعة استدعاءات البحث.
+                has_research_call = any(
+                    e.call.name in self._research_tools for e in evaluated
+                )
+                if has_research_call:
+                    blocked = [
+                        e for e in evaluated
+                        if e.call.name not in self._research_tools
+                        and e.decision != DecisionKind.DENY
+                    ]
+                    for ecall in blocked:
+                        blocked_result = ToolResult.failure(
+                            tool=ecall.call.name,
+                            call_id=ecall.call.call_id,
+                            code=ErrorCode.POLICY_DENY,
+                            message="research must complete before non-research tools execute",
+                            retryable=True,
+                        )
+                        self._append_message(messages, {
+                            "role": "tool",
+                            "tool_call_id": ecall.call.call_id,
+                            "content": blocked_result.to_content_str(),
+                        })
+                        self._tool_results.append(blocked_result)
+                        await self._on_event(
+                            "tool_deferred",
+                            tool=ecall.call.name,
+                            reason="research_gate",
+                        )
+                    evaluated = [
+                        e for e in evaluated if e.call.name in self._research_tools
+                    ]
+                    self.audit.log(
+                        "research_gate",
+                        turn_id=self._turn_id,
+                        research_tools=[e.call.name for e in evaluated],
+                        deferred_tools=[e.call.name for e in blocked],
+                    )
+
                 # الاستدعاءات المرفوضة (DENY) — نهائية، لا تعرض للموافقة
                 denied = [e for e in evaluated if e.decision == DecisionKind.DENY]
                 for ecall in denied:
@@ -738,7 +782,11 @@ class AgentOrchestrator:
                             tool_results=self._tool_results,
                             rounds_used=rounds_used,
                         )
-                    self._transition(TurnState.EXECUTING)
+                    if any(e.call.name in self._research_tools for e in needs_approval):
+                        self._transition(TurnState.RESEARCHING)
+                        await self._on_event("research_start", round=round_idx)
+                    else:
+                        self._transition(TurnState.EXECUTING)
 
                 # الاستدعاءات المسموحة مباشرة أو التي تمت الموافقة عليها
                 ready = [
@@ -752,7 +800,12 @@ class AgentOrchestrator:
                     continue
 
                 # ── تنفيذ الاستدعاءات الجاهزة ────────────────
-                self._transition(TurnState.EXECUTING)
+                if any(e.call.name in self._research_tools for e in ready):
+                    if self._state != TurnState.RESEARCHING:
+                        self._transition(TurnState.RESEARCHING)
+                        await self._on_event("research_start", round=round_idx)
+                else:
+                    self._transition(TurnState.EXECUTING)
                 for ecall in ready:
                     if self._is_cancelled():
                         break
@@ -839,7 +892,7 @@ class AgentOrchestrator:
     def _approval_kind(tool_name: str) -> str:
         if tool_name in {"apply_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan"}:
             return "patch"
-        if tool_name == "web_search":
+        if tool_name in {"web_search", "fetch_page"}:
             return "network"
         if tool_name.startswith("git_"):
             return "git"
@@ -884,6 +937,12 @@ class AgentOrchestrator:
                 "title": "Approve web search?",
                 "query": args.get("query", ""),
                 "provider": args.get("provider", "duckduckgo"),
+            }
+        if call.name == "fetch_page":
+            return {
+                "title": "Approve page fetch?",
+                "url": args.get("url", ""),
+                "provider": "direct-page",
             }
         if call.name == "rollback_patch":
             return {"path": args.get("path", ""), "diff": "rollback requested"}

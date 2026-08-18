@@ -70,6 +70,50 @@ class SearchResultItem(BaseModel):
         return value
 
 
+class FetchPageArgs(BaseModel):
+    """Validated arguments for bounded, read-only page retrieval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048)
+    max_chars: int = Field(default=12_000, ge=100, le=50_000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        value = value.strip()
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("page URL must use http or https")
+        if not parsed.hostname:
+            raise ValueError("page URL must include a hostname")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("page URL must not contain credentials")
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("page URL contains an invalid port") from exc
+        return value
+
+
+class FetchedPageResult(BaseModel):
+    """Bounded sanitized page content from an untrusted web source."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048)
+    final_url: str = Field(min_length=1, max_length=2048)
+    title: str = Field(default="", max_length=500)
+    content: str = Field(default="", max_length=50_000)
+    content_type: str = Field(min_length=1, max_length=128)
+    content_hash: str = Field(min_length=64, max_length=64)
+    redirect_chain: list[str] = Field(default_factory=list, max_length=5)
+    truncated: bool = False
+    untrusted: Literal[True] = True
+    possible_prompt_injection: bool = False
+    warning: str = Field(default=_WEB_WARNING, min_length=1, max_length=300)
+
+
 class WebSearchResult(BaseModel):
     """Bounded, serializable search output suitable for the agent context."""
 
@@ -84,4 +128,10 @@ class WebSearchResult(BaseModel):
     warning: str = Field(default=_WEB_WARNING, min_length=1, max_length=300)
 
 
-__all__ = ["SearchResultItem", "WebSearchArgs", "WebSearchResult"]
+__all__ = [
+    "FetchPageArgs",
+    "FetchedPageResult",
+    "SearchResultItem",
+    "WebSearchArgs",
+    "WebSearchResult",
+]

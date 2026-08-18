@@ -19,6 +19,7 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "list_dir":        Permission.READ,
         "search_text":    Permission.READ,
     "web_search":     Permission.NETWORK,
+    "fetch_page":     Permission.NETWORK,
 
     "repo_map":        Permission.READ,
     "git_status":      Permission.READ,

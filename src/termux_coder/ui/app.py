@@ -232,12 +232,19 @@ class TextualUI(AgentUI):
             self._put(Static(todos_renderable(items)))
 
         elif kind == "web_search_started":
-            self.app.update_activity("SEARCH", payload.get("query", ""))
+            self.app.update_activity("RESEARCHING", payload.get("query", ""))
             self._put(Static(tool_line("SEARCH", payload.get("provider", ""), payload.get("query", ""))))
         elif kind == "web_search_finished":
             self._put(Static(tool_line("SEARCH", payload.get("provider", ""), f"{payload.get('result_count', 0)} results")))
         elif kind == "web_search_failed":
             self._put(Static(Text(f"SEARCH · failed · {payload.get('error', '')}", style=theme.RED)))
+        elif kind == "fetch_page_started":
+            self.app.update_activity("RESEARCHING", payload.get("url", ""))
+            self._put(Static(tool_line("FETCH", "direct-page", payload.get("url", ""))))
+        elif kind == "fetch_page_finished":
+            self._put(Static(tool_line("FETCH", "direct-page", "page loaded")))
+        elif kind == "fetch_page_failed":
+            self._put(Static(Text(f"FETCH · failed · {payload.get('error', '')}", style=theme.RED)))
         elif kind == "verification_start":
             self._put(Static(Text("VERIFYING · running project verification", style=theme.ORANGE)))
         elif kind == "verification_result":
@@ -283,9 +290,10 @@ class TextualUI(AgentUI):
             body = "Files: " + ", ".join(payload.get("paths", []))
         elif kind == "network":
             title = payload.get("title", "Approve network request?")
+            target = payload.get("query") or payload.get("url", "")
             body = (
                 f"Provider: {payload.get('provider', '')}\n"
-                f"Query: {payload.get('query', '')}\n\n"
+                f"Target: {target}\n\n"
                 "Results will be treated as untrusted web data."
             )
         elif kind == "git":
@@ -366,7 +374,8 @@ class TermuxCoderApp(App):
             "turn_start": "THINKING",
             "round_start": "PLANNING",
             "tool_start": "EXECUTING",
-            "web_search_started": "SEARCH",
+            "web_search_started": "RESEARCHING",
+            "fetch_page_started": "RESEARCHING",
             "approval_requested": "AWAITING APPROVAL",
             "verification_start": "VERIFYING",
             "verification_result": f"VERIFY {payload.get('status', '')}",

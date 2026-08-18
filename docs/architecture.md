@@ -4,7 +4,7 @@
 
 `termux-coder` is a safety-first coding agent designed for Termux on Android. The architecture separates **knowledge acquisition**, **planning**, **file mutation**, and **verification** so that external web content never becomes an implicit instruction to modify the workspace.
 
-The current implementation keeps the legacy execution path available while the `AgentOrchestrator` path is enabled progressively through feature flags. The research contracts introduced in `src/termux_coder/models/research.py` define the boundary between current web knowledge and future coding plans; they do not yet enable an automatic `RESEARCHING` state.
+The current implementation keeps the legacy execution path available while the `AgentOrchestrator` path is enabled progressively through feature flags. The research contracts introduced in `src/termux_coder/models/research.py` define the boundary between current web knowledge and coding plans. The orchestrator now exposes a `RESEARCHING` state for web discovery and page retrieval; automatic construction of a `ResearchPacket` from those calls remains a future coordinator responsibility.
 
 ## System Layers
 
@@ -15,7 +15,8 @@ flowchart TD
     O --> I[TaskIntent]
     I -. current documentation required .-> W[web_search]
     W --> R[WebSearchResult]
-    R --> E[EvidenceItem]
+    R --> F[fetch_page]
+    F --> E[EvidenceItem]
     E --> P[ResearchPacket]
     P --> C[Context and Planning]
     C --> T[ToolRegistry]
@@ -30,7 +31,7 @@ flowchart TD
     B --> S
 ```
 
-The diagram describes the target knowledge-assisted flow. The currently available production flow includes `web_search`, its Network Policy, and the research data contracts. The coordinator that automatically builds a `ResearchPacket` and a future `RESEARCHING` state are planned follow-up work.
+The diagram describes the knowledge-assisted flow. The currently available production flow includes `web_search`, `fetch_page`, Network Policy, the `RESEARCHING` state, and the research data contracts. A coordinator that automatically builds a `ResearchPacket` from fetched evidence remains planned follow-up work.
 
 ## Core Execution Components
 
@@ -100,7 +101,7 @@ PatchPlan.plan_id + audit metadata
 
 `web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands.
 
-The current web-search path is:
+The current web knowledge path is:
 
 ```text
 web_search arguments
@@ -109,10 +110,14 @@ web_search arguments
   → bounded HTML response
   → WebSanitizer
   → WebSearchResult
-  → untrusted tool output
+  → RESEARCHING
+  → fetch_page
+  → SSRF + redirect + content checks
+  → FetchedPageResult
+  → untrusted research data
 ```
 
-Search results are for source discovery. They are not sufficient evidence for a version-sensitive code change by themselves. The planned next layer is `fetch_page` with SSRF protection, redirect validation, content-type checks, and bounded page extraction. Only then should a future `ResearchCoordinator` construct a `ResearchPacket`.
+Search results are for source discovery. `fetch_page` retrieves a bounded public HTTP(S) page for reading, but it does not itself certify version compatibility or create a planning approval. A future `ResearchCoordinator` will select official sources, match versions, and construct a `ResearchPacket` from the fetched evidence.
 
 ## Trust Boundaries
 
@@ -130,7 +135,7 @@ The boundaries are as follows:
 
 ## Future Research-Orchestrator Integration
 
-The planned `ResearchCoordinator` will be a separate service rather than placing all research logic inside `AgentOrchestrator`:
+The future `ResearchCoordinator` will be a separate service rather than placing all evidence-selection logic inside `AgentOrchestrator`:
 
 ```text
 core/research.py
@@ -140,9 +145,9 @@ core/research.py
   └── ResearchPacketBuilder
 ```
 
-The future flow will add a `RESEARCHING` state only when `TaskIntent.requires_current_docs` is true. The coordinator will search for candidate sources, prefer official documentation and version-compatible sources, fetch selected pages through a protected fetch tool, construct a `ResearchPacket`, and pass only the validated packet into planning.
+The future coordinator will use `TaskIntent.requires_current_docs` to decide when the current `RESEARCHING` state should be entered automatically. It will search for candidate sources, prefer official documentation and version-compatible sources, use the protected `fetch_page` tool, construct a `ResearchPacket`, and pass only the validated packet into planning.
 
-The orchestrator must not transition to file execution merely because a search returned results. A valid transition requires a packet with sufficient confidence, a PatchPlan with a Safe Preview, an approval grant tied to the plan fingerprint, and successful verification after application.
+The orchestrator must not transition to file execution merely because a search or page fetch returned data. A future validated packet with sufficient confidence, a PatchPlan with a Safe Preview, an approval grant tied to the plan fingerprint, and successful verification after application are required before mutation.
 
 ## Configuration and Feature Flags
 
@@ -160,10 +165,11 @@ The orchestrator must not transition to file execution merely because a search r
 
 The contract tests are in `tests/test_research_models.py`. They cover query requirements, control characters, duplicate packages, unsafe URLs, timezone-aware timestamps, source hashes, evidence fingerprints, selected-source consistency, and confidence rules.
 
-Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Future integration tests must cover:
+Web-search tests cover Network Policy modes, provider parsing, response limits, total timeout, approval rejection, and untrusted result output. Fetch-page tests cover SSRF blocking, private redirects, content-type rejection, bounded extraction, and RESEARCHING orchestration. Future integration tests must cover:
 
 ```text
 TaskIntent
+  → RESEARCHING
   → web_search
   → fetch_page
   → ResearchPacket
