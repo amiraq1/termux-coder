@@ -27,6 +27,12 @@
 | SECURITY | — | ASK (أو READONLY / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
+| TERMUX_CODER_ORCHESTRATOR | — | 0 |
+| TERMUX_CODER_WEB_SEARCH | — | 1 |
+| TERMUX_CODER_SEARCH_PROVIDER | — | duckduckgo |
+| TERMUX_CODER_SEARCH_TIMEOUT | — | 10 seconds |
+| TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES | — | 500000 |
+| TERMUX_CODER_SEARCH_MAX_RESULTS | — | 5 |
 
 ملف جاهز: ~/termux-coder/env_nvidia.sh (اقتباسات إنجليزية فقط!)
 ثم: echo "source ~/termux-coder/env_nvidia.sh" >> ~/.bashrc
@@ -51,6 +57,20 @@
 - كل كتابة/أمر/commit/restore يمر بنافذة موافقة (وضع ASK).
 - نسخ احتياطية في .termux_coder/backups + تدقيق في audit.jsonl.
 - Git discipline: checkpoint قبل المهام، commit ببادئة "agent:".
+
+## البحث عبر الإنترنت والمعرفة الموثقة
+
+يحتوي النظام على أداة `web_search` للبحث الشبكي للقراءة فقط، وتعمل عبر `Network Policy` ومزود Async قابل للتبديل. نتائج البحث تُعامل دائمًا كبيانات ويب غير موثوقة، ولا تمنح موافقة على تعديل الملفات أو تشغيل الأوامر.
+
+توجد عقود المعرفة في `src/termux_coder/models/research.py`:
+
+| العقد | الوظيفة |
+|---|---|
+| `TaskIntent` | يحدد المهمة وما إذا كانت تحتاج وثائق حديثة |
+| `EvidenceItem` | يمثل مقتطفًا محدودًا من مصدر ويب مع الإصدار والبصمة |
+| `ResearchPacket` | يربط الأدلة بالنية والمصادر المختارة ومستوى الثقة |
+
+الدمج التلقائي مع حالة `RESEARCHING` وقراءة الصفحات الرسمية عبر `fetch_page` مخطط لمرحلة لاحقة. راجع [وثيقة التصميم المعماري](docs/architecture.md) للتدفق الكامل وحدود الثقة.
 
 ## الطبقات
 
