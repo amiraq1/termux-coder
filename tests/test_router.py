@@ -1,3 +1,5 @@
+import pytest
+
 from termux_coder.cli import build_registry
 from termux_coder.providers.router import FAST_EXCLUDE, ModelRouter
 
@@ -72,3 +74,60 @@ def test_fast_cannot_execute_mutation_tools():
     assert "git_status" in fast_names
     assert "repo_map" in fast_names
     assert "lsp_diagnostics" in fast_names
+
+
+
+def test_research_summary_into_arabic_file_uses_smart_tier():
+    r = router()
+    text = "ابحث عن أحدث ميزات Python 3.13 ولخصها لي في ملف اسمه features.md"
+    assert r.tier_for_round(0, text, []) == ("smart", "edit_intent")
+
+
+def test_research_summary_into_english_file_uses_smart_tier():
+    r = router()
+    text = "Search the latest Python 3.13 docs and summarize them into a file"
+    assert r.tier_for_round(0, text, []) == ("smart", "edit_intent")
+
+
+def test_read_only_research_remains_fast():
+    r = router()
+    text = "ابحث عن أحدث ميزات Python 3.13 ولخصها لي"
+    assert r.tier_for_round(0, text, []) == ("fast", "exploration")
+
+
+@pytest.mark.anyio
+async def test_adapter_keeps_write_tools_for_research_file_output():
+    from contextlib import nullcontext
+    from termux_coder.core.orchestrator_adapter import RouterProviderAdapter
+
+    class StubUI:
+        def thinking(self):
+            return nullcontext()
+
+        async def on_event(self, *args, **kwargs):
+            return None
+
+    class StubProvider:
+        def __init__(self):
+            self.tools = []
+
+        async def chat_stream(self, messages, tools, on_token):
+            self.tools = tools
+            return {"message": {"role": "assistant", "content": "ok"}}
+
+    fast = StubProvider()
+    smart = StubProvider()
+    adapter = RouterProviderAdapter(
+        router=ModelRouter(fast, smart, "fast", "smart", StubUI()),
+        ui=StubUI(),
+        user_text="ابحث عن أحدث وثائق Python ولخصها لي في ملف features.md",
+    )
+    schemas = [
+        {"function": {"name": "read_file"}},
+        {"function": {"name": "write_file"}},
+        {"function": {"name": "apply_patch"}},
+    ]
+    await adapter.chat_stream([], schemas, lambda _: None)
+    assert {item["function"]["name"] for item in smart.tools} == {
+        "read_file", "write_file", "apply_patch"
+    }

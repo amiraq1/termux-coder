@@ -12,6 +12,13 @@ RUN_KEYWORDS = (
     "run ", "execute", "pytest", "npm test", "build", "install",
 )
 
+# طلبات إنتاج مخرجات أو حفظ نتيجة البحث في ملف تحتاج أدوات smart.
+OUTPUT_KEYWORDS = (
+    "في ملف", "بملف", "احفظ", "سجل", "خزّن", "ملف اسمه", "ملف باسم",
+    "into a file", "to a file", "save it", "save as", "write to",
+    "summarize into", "report file", "output file",
+)
+
 # إشارات فشل محددة فقط — لا "error:" الفضفاضة
 REPAIR_SIGNALS = (
     "patch error",
@@ -62,7 +69,7 @@ class ModelRouter:
     @staticmethod
     def looks_like_edit(text: str) -> bool:
         low = text.lower()
-        return any(k in low for k in EDIT_KEYWORDS)
+        return any(k in low for k in EDIT_KEYWORDS) or any(k in low for k in OUTPUT_KEYWORDS)
 
     @staticmethod
     def looks_like_run(text: str) -> bool:
