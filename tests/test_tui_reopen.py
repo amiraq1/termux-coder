@@ -46,6 +46,8 @@ def test_ctrl_a_reopens_provider_picker_from_prompt(tmp_path, monkeypatch):
         app = TermuxCoderApp(build_agent(settings, CliUI()), settings)
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
+            assert app.focused is not None
+            assert app.focused.id == "prompt"
             await pilot.press("ctrl+a")
             await pilot.pause()
             assert isinstance(app.screen, ProviderPickerScreen)

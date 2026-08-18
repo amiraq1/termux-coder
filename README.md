@@ -42,6 +42,7 @@
 | PROVIDERS_CONFIG | TERMUX_CODER_PROVIDERS_CONFIG | optional JSON/YAML provider file |
 | TUI_SHOW_ACTIVITY | TERMUX_CODER_TUI_SHOW_ACTIVITY | 1 |
 | TUI_SHOW_STATUS | TERMUX_CODER_TUI_SHOW_STATUS | 1 |
+| TUI_AUTO_FOCUS | TERMUX_CODER_TUI_AUTO_FOCUS | 1 |
 | TUI_MODEL_NEXT_KEY | TERMUX_CODER_TUI_MODEL_NEXT_KEY | ctrl+down |
 | TUI_MODEL_PREV_KEY | TERMUX_CODER_TUI_MODEL_PREV_KEY | ctrl+up |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
@@ -198,6 +199,8 @@ export TERMUX_CODER_TUI_MODEL_NEXT_KEY='alt+j'
 ```
 
 الاختصارات الافتراضية هي `Ctrl+Up` للنموذج السابق و`Ctrl+Down` للنموذج التالي. تم اختيارها لتجنب تعارض `Ctrl+P` مع اختصار التركيز العام في الواجهة الرئيسية. يعمل الاختصار المخصص داخل قائمة النماذج فقط، ولا يغير اختصارات CLI العامة مثل `Ctrl+A` لفتح قائمة المزودين أو `Ctrl+O` لتوسيع diff. يمكن استخدام الأسهم و`Enter` في جميع الحالات كمسار بديل.
+
+يكون حقل السؤال مركزًا تلقائيًا عند بدء TUI عندما تكون قيمة `TERMUX_CODER_TUI_AUTO_FOCUS=1`، ويمكن إعادة التركيز عليه عبر `Ctrl+P`. إذا لم تظهر لوحة Android الناعمة، فهذه وظيفة يتحكم بها تطبيق Termux وإعدادات Android، وليست شيئًا يستطيع Python أو Textual إجباره بشكل موثوق. فعّل لوحة المفاتيح الناعمة من إعدادات Termux/Android، أو استخدم شريط **Extra Keys** للوصول إلى `CTRL` و`ESC` والأسهم. لتعطيل التركيز التلقائي استخدم `TERMUX_CODER_TUI_AUTO_FOCUS=0`.
 
 ## نموذج الأمان
 

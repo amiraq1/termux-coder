@@ -387,6 +387,8 @@ class TermuxCoderApp(App):
         if not self.settings.tui_show_status:
             self.query_one("#status").add_class("-hidden")
         self._render_status()
+        if self.settings.tui_auto_focus:
+            self.call_after_refresh(self.action_focus_prompt)
         self.set_interval(1.6, self._tick)
 
     # ── State ─────────────────────────────────────────────

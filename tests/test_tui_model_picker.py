@@ -34,6 +34,7 @@ def test_model_picker_falls_back_to_current_model_when_catalog_is_empty():
 def test_tui_settings_are_configurable(monkeypatch):
     monkeypatch.setenv("TERMUX_CODER_TUI_SHOW_ACTIVITY", "0")
     monkeypatch.setenv("TERMUX_CODER_TUI_SHOW_STATUS", "0")
+    monkeypatch.setenv("TERMUX_CODER_TUI_AUTO_FOCUS", "0")
     monkeypatch.setenv("TERMUX_CODER_TUI_MODEL_NEXT_KEY", "alt+j")
     monkeypatch.setenv("TERMUX_CODER_TUI_MODEL_PREV_KEY", "alt+k")
 
@@ -41,5 +42,6 @@ def test_tui_settings_are_configurable(monkeypatch):
 
     assert settings.tui_show_activity is False
     assert settings.tui_show_status is False
+    assert settings.tui_auto_focus is False
     assert settings.tui_model_next_key == "alt+j"
     assert settings.tui_model_prev_key == "alt+k"
