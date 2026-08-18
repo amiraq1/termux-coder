@@ -26,6 +26,7 @@ class ProviderSpec:
     category: str = "Providers"
     popular: bool = False
     models: tuple[str, ...] = ()
+    protocol: str = "openai"
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class ProviderSelection:
     api_key: str
     base_url: str
     key_env: str
+    protocol: str = "openai"
 
     @property
     def redacted_label(self) -> str:
@@ -44,29 +46,41 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "nvidia": ProviderSpec(
         "nvidia", "NVIDIA_API_KEY", "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1",
         "NVIDIA NIM", "Providers", False,
-        ("meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"),
+        ("meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"), "openai",
     ),
     "openai": ProviderSpec(
         "openai", "OPENAI_API_KEY", "OPENAI_BASE_URL", "https://api.openai.com/v1",
         "OpenAI (ChatGPT Plus/Pro or API key)", "Popular", True,
-        ("gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"),
+        ("gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"), "openai",
     ),
     "openrouter": ProviderSpec(
         "openrouter", "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1",
-        "OpenRouter", "Providers", False, (),
+        "OpenRouter", "Providers", False, (), "openai",
     ),
     "groq": ProviderSpec(
         "groq", "GROQ_API_KEY", "GROQ_BASE_URL", "https://api.groq.com/openai/v1",
         "Groq", "Popular", True,
-        ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
+        ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"), "openai",
     ),
     "together": ProviderSpec(
         "together", "TOGETHER_API_KEY", "TOGETHER_BASE_URL", "https://api.together.xyz/v1",
-        "Together AI", "Providers", False, (),
+        "Together AI", "Providers", False, (), "openai",
+    ),
+    "anthropic": ProviderSpec(
+        "anthropic", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1",
+        "Anthropic (API key)", "Popular", True,
+        ("claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"), "anthropic",
+    ),
+    "gemini": ProviderSpec(
+        "gemini", "GEMINI_API_KEY", "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta",
+        "Google Gemini", "Popular", True,
+        ("gemini-2.5-flash", "gemini-2.5-pro"), "gemini",
     ),
 }
 
-DEFAULT_AUTO_ORDER = ("nvidia", "openai", "openrouter", "groq", "together")
+DEFAULT_AUTO_ORDER = (
+    "nvidia", "openai", "openrouter", "groq", "together", "anthropic", "gemini"
+)
 _CONFIG_FILENAMES = ("providers.json", "providers.yaml", "providers.yml")
 _ALLOWED_PROVIDER_FIELDS = frozenset(
     {
@@ -78,6 +92,7 @@ _ALLOWED_PROVIDER_FIELDS = frozenset(
         "key_env",
         "base_url_env",
         "default_base_url",
+        "protocol",
     }
 )
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -219,6 +234,9 @@ def load_custom_providers(
         if not isinstance(label, str) or not label.strip() or len(label) > 100:
             raise _invalid_config("label must be a non-empty string of at most 100 characters")
         category = item.get("category", "Providers")
+        protocol = item.get("protocol", "openai")
+        if protocol not in {"openai", "anthropic", "gemini"}:
+            raise _invalid_config("protocol must be openai, anthropic, or gemini")
         if category not in {"Popular", "Providers"}:
             raise _invalid_config("category must be Popular or Providers")
         popular = item.get("popular", category == "Popular")
@@ -246,6 +264,7 @@ def load_custom_providers(
             category,
             popular,
             models,
+            protocol,
         )
 
     raw_order = data.get("auto_order")
@@ -323,6 +342,7 @@ def select_provider(
             api_key=key,
             base_url=base_url or spec.default_base_url,
             key_env=spec.key_env,
+            protocol=spec.protocol,
         )
 
     if requested != "auto":

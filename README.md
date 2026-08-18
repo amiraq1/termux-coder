@@ -36,6 +36,8 @@
 | OPENROUTER_API_KEY / OPENROUTER_BASE_URL | TERMUX_CODER_OPENROUTER_API_KEY / TERMUX_CODER_OPENROUTER_BASE_URL | OpenRouter |
 | GROQ_API_KEY / GROQ_BASE_URL | TERMUX_CODER_GROQ_API_KEY / TERMUX_CODER_GROQ_BASE_URL | Groq |
 | TOGETHER_API_KEY / TOGETHER_BASE_URL | TERMUX_CODER_TOGETHER_API_KEY / TERMUX_CODER_TOGETHER_BASE_URL | Together |
+| ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL | TERMUX_CODER_ANTHROPIC_API_KEY / TERMUX_CODER_ANTHROPIC_BASE_URL | Anthropic Messages API |
+| GEMINI_API_KEY / GEMINI_BASE_URL | TERMUX_CODER_GEMINI_API_KEY / TERMUX_CODER_GEMINI_BASE_URL | Google Gemini API |
 | MODEL | TERMUX_CODER_MODEL | gpt-4o-mini |
 | PROVIDERS_CONFIG | TERMUX_CODER_PROVIDERS_CONFIG | optional JSON/YAML provider file |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
@@ -60,7 +62,7 @@
 
 ### اختيار مزود النموذج
 
-يدعم الوكيل مزودين متوافقين مع OpenAI API: NVIDIA NIM وOpenAI وOpenRouter وGroq وTogether. الوضع الافتراضي `PROVIDER=auto` يختار أول مزود يملك مفتاحًا مهيأً حسب الترتيب: NVIDIA ثم OpenAI ثم OpenRouter ثم Groq ثم Together. لا يحاول النظام استنتاج المزود من شكل المفتاح السري؛ يعتمد على اسم متغير البيئة الصريح لتجنب اختيار خاطئ أو كشف بيانات حساسة.
+يدعم الوكيل مزودين متوافقين مع OpenAI API مثل NVIDIA NIM وOpenAI وOpenRouter وGroq وTogether، كما يدعم Anthropic Messages API وGoogle Gemini API عبر adapters مستقلة. الوضع الافتراضي `PROVIDER=auto` يختار أول مزود يملك مفتاحًا مهيأً حسب ترتيب الكتالوج. لا يحاول النظام استنتاج المزود من شكل المفتاح السري؛ يعتمد على اسم متغير البيئة الصريح لتجنب اختيار خاطئ أو كشف بيانات حساسة.
 
 يمكن فرض مزود محدد:
 
@@ -113,6 +115,7 @@ export TERMUX_CODER_PROVIDERS_CONFIG="$HOME/.termux_coder/providers.json"
       "label": "My Provider",
       "category": "Popular",
       "popular": true,
+      "protocol": "openai",
       "models": ["my-model-small", "my-model-large"],
       "key_env": "MYPROVIDER_API_KEY",
       "base_url_env": "MYPROVIDER_BASE_URL",
@@ -123,9 +126,39 @@ export TERMUX_CODER_PROVIDERS_CONFIG="$HOME/.termux_coder/providers.json"
 }
 ```
 
-`key_env` و`base_url_env` هما اسما متغيري البيئة فقط؛ لا تضع قيمة المفتاح داخل الملف. يمكن حذف `base_url_env` عند الاكتفاء بـ`default_base_url`. الحقول `label` و`category` و`popular` و`models` اختيارية وتستخدم لعرض القائمة التفاعلية؛ `category` يقبل `Popular` أو `Providers`. إذا لم يوجد `auto_order` تُضاف المزودات المخصصة بعد ترتيب المزودات المدمجة. المتغيرات المسبوقة بـ`TERMUX_CODER_` لها أولوية أعلى، مثل `TERMUX_CODER_MYPROVIDER_API_KEY`.
+`key_env` و`base_url_env` هما اسما متغيري البيئة فقط؛ لا تضع قيمة المفتاح داخل الملف. يمكن حذف `base_url_env` عند الاكتفاء بـ`default_base_url`. الحقل `protocol` اختياري وقيمه `openai` أو `anthropic` أو `gemini`، والافتراضي `openai`. الحقول `label` و`category` و`popular` و`models` اختيارية وتستخدم لعرض القائمة التفاعلية؛ `category` يقبل `Popular` أو `Providers`. إذا لم يوجد `auto_order` تُضاف المزودات المخصصة بعد ترتيب المزودات المدمجة. المتغيرات المسبوقة بـ`TERMUX_CODER_` لها أولوية أعلى، مثل `TERMUX_CODER_MYPROVIDER_API_KEY`.
 
-ملفات YAML اختيارية وتتطلب تثبيت `PyYAML`؛ JSON هو الخيار الموصى به في Termux لأنه لا يحتاج dependency إضافية. يرفض المحمل الحقول غير المعروفة، وحقول `shell` أو `headers` أو قيم المفاتيح، والروابط التي تحتوي credentials أو query أو fragment. هذا المسار لا يدعم إلا endpoints المتوافقة مع OpenAI API؛ البروتوكولات المختلفة تحتاج adapter مستقل.
+ملفات YAML اختيارية وتتطلب تثبيت `PyYAML`؛ JSON هو الخيار الموصى به في Termux لأنه لا يحتاج dependency إضافية. يرفض المحمل الحقول غير المعروفة، وحقول `shell` أو `headers` أو قيم المفاتيح، والروابط التي تحتوي credentials أو query أو fragment.
+
+لإضافة Anthropic:
+
+```json
+{
+  "name": "claude",
+  "label": "Anthropic Claude",
+  "protocol": "anthropic",
+  "key_env": "ANTHROPIC_API_KEY",
+  "base_url_env": "ANTHROPIC_BASE_URL",
+  "default_base_url": "https://api.anthropic.com/v1",
+  "models": ["claude-sonnet-4-5", "claude-opus-4-5"]
+}
+```
+
+ولإضافة Gemini:
+
+```json
+{
+  "name": "gemini",
+  "label": "Google Gemini",
+  "protocol": "gemini",
+  "key_env": "GEMINI_API_KEY",
+  "base_url_env": "GEMINI_BASE_URL",
+  "default_base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "models": ["gemini-2.5-flash", "gemini-2.5-pro"]
+}
+```
+
+Anthropic يستخدم Messages API مع `x-api-key` و`anthropic-version`، بينما Gemini يستخدم `generateContent`/`streamGenerateContent` مع `x-goog-api-key` وتحويل `functionCall` و`functionResponse`. لذلك لا يكفي تغيير `base_url` فقط؛ يجب تحديد `protocol` الصحيح. أما المزودون الآخرون فيجب أن يكونوا OpenAI-compatible.
 
 يُرسل `TERMUX_CODER_SINGLE_TOOL_CALLS=1` قيمة `parallel_tool_calls=false` لمزود OpenAI-compatible، وهو الوضع المناسب لنماذج Llama المحلية التي لا تقبل عدة tool calls في الاستجابة نفسها. يمكن ضبطه إلى `0` فقط مع مزود يدعم الاستدعاءات المتوازية.
 

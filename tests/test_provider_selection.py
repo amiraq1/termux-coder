@@ -11,11 +11,15 @@ _BASE_URL_NAMES = (
     "OPENROUTER_BASE_URL",
     "GROQ_BASE_URL",
     "TOGETHER_BASE_URL",
+    "ANTHROPIC_BASE_URL",
+    "GEMINI_BASE_URL",
     "TERMUX_CODER_NVIDIA_BASE_URL",
     "TERMUX_CODER_OPENAI_BASE_URL",
     "TERMUX_CODER_OPENROUTER_BASE_URL",
     "TERMUX_CODER_GROQ_BASE_URL",
     "TERMUX_CODER_TOGETHER_BASE_URL",
+    "TERMUX_CODER_ANTHROPIC_BASE_URL",
+    "TERMUX_CODER_GEMINI_BASE_URL",
 )
 
 _SECRET_NAMES = (
@@ -24,11 +28,15 @@ _SECRET_NAMES = (
     "OPENROUTER_API_KEY",
     "GROQ_API_KEY",
     "TOGETHER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
     "TERMUX_CODER_NVIDIA_API_KEY",
     "TERMUX_CODER_OPENAI_API_KEY",
     "TERMUX_CODER_OPENROUTER_API_KEY",
     "TERMUX_CODER_GROQ_API_KEY",
     "TERMUX_CODER_TOGETHER_API_KEY",
+    "TERMUX_CODER_ANTHROPIC_API_KEY",
+    "TERMUX_CODER_GEMINI_API_KEY",
 )
 
 
@@ -262,4 +270,34 @@ def test_custom_catalog_rejects_invalid_models(tmp_path):
     )
 
     with pytest.raises(ValueError, match="models"):
+        select_provider("auto", config_path=config)
+
+
+def test_custom_protocol_is_preserved_in_selection(tmp_path, monkeypatch):
+    _clear_keys(monkeypatch)
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "claude_gateway", "protocol": "anthropic", '
+        '"key_env": "CLAUDE_GATEWAY_API_KEY", '
+        '"default_base_url": "https://gateway.example/v1"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLAUDE_GATEWAY_API_KEY", "claude-secret")
+
+    selected = select_provider("claude_gateway", config_path=config)
+
+    assert selected.protocol == "anthropic"
+    assert selected.base_url == "https://gateway.example/v1"
+
+
+def test_custom_protocol_rejects_unknown_value(tmp_path):
+    config = tmp_path / "providers.json"
+    config.write_text(
+        '{"providers": [{"name": "other", "protocol": "unknown", '
+        '"key_env": "OTHER_API_KEY", '
+        '"default_base_url": "https://other.example/v1"}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="protocol"):
         select_provider("auto", config_path=config)

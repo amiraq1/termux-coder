@@ -9,7 +9,6 @@ from .config import Settings
 from .core.agent import Agent
 from .core.registry import ToolRegistry
 from .core.session import SessionStore
-from .providers.openai_compat import OpenAICompatProvider
 from .tools import edit, fs, shell, todos, maptool, gittool, lsptool, transaction, web_search, fetch_page, symbol
 from .ui.cli import CliUI
 
@@ -119,6 +118,7 @@ def build_registry() -> ToolRegistry:
 
 def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
     import os
+    from .providers.factory import create_provider
     from .providers.router import ModelRouter
     from .providers.selection import select_provider
 
@@ -131,12 +131,8 @@ def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
         config_path=settings.providers_config_path or None,
         workspace=settings.workspace,
     )
-    fast_provider = OpenAICompatProvider(
-        selected.api_key, selected.base_url, fast_model
-    )
-    smart_provider = OpenAICompatProvider(
-        selected.api_key, selected.base_url, smart_model
-    )
+    fast_provider = create_provider(selected, fast_model)
+    smart_provider = create_provider(selected, smart_model)
     router = ModelRouter(
         fast_provider,
         smart_provider,
