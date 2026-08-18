@@ -56,6 +56,8 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `WebSearchCapabilityAdapter` | Adapts a read-only search provider to the capability contract | Delegates search only; no shell or file access |
 | `OfficialDocsProvider` | Filters search output to an explicit official-domain allowlist | Rejects non-allowlisted hosts and remains read-only |
 | `ResilientWebSearchProvider` | Adds bounded retries, TTL cache, circuit breaker, and health metadata | Read-only wrapper; does not alter policy decisions |
+| `DoctorRunner` | Runs isolated local diagnostics and returns a structured report | Does not execute verification commands or live network probes in P4.4a |
+| `DoctorReport` | Serializes scrubbed human/JSON diagnostic output with exit semantics | Warnings pass; errors/timeouts fail |
 
 ## Research Contracts
 
@@ -106,6 +108,10 @@ ResearchPacket.intent_id
         ↓
 PatchPlan.plan_id + audit metadata
 ```
+
+## Doctor Boundary
+
+`termux-coder doctor` runs local diagnostics through `DoctorRunner`. It checks Python dependencies, required binaries, policy configuration, workspace jail, secret scrubbing, audit persistence, verification configuration parsing, SQLite session storage, and provider health metadata. It does not execute `.termux-coder.toml` verification commands and does not perform live network probes in P4.4a. `--json` serializes a versioned `DoctorReport` after scrubbing; `--verbose` adds scrubbed details. A warning or skipped check does not fail the command, while an error or timeout returns exit code 1.
 
 ## Web Search Boundary
 
@@ -179,6 +185,9 @@ The orchestrator must not transition to file execution merely because a search o
 | `TERMUX_CODER_SEARCH_TIMEOUT` | `10` | Total network timeout in seconds |
 | `TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES` | `500000` | Maximum provider response size |
 | `TERMUX_CODER_SEARCH_MAX_RESULTS` | `5` | Maximum results returned to context |
+| `doctor --json` | off | Emits a scrubbed versioned JSON DoctorReport |
+| `doctor --verbose` | off | Emits scrubbed check details |
+| `doctor --network` | off | Reserved for explicit live probes; not executed in P4.4a |
 | `TERMUX_CODER_SEARCH_MAX_RETRIES` | `2` | Additional retries for transient provider failures |
 | `TERMUX_CODER_SEARCH_RETRY_BASE_DELAY` | `0.25` | Exponential backoff base delay in seconds |
 | `TERMUX_CODER_SEARCH_CIRCUIT_FAILURES` | `3` | Consecutive transient failures before opening the circuit |

@@ -100,6 +100,18 @@ circuit: 3 failures → 60s cooldown
 cache: 30s TTL و32 نتيجة كحد أقصى
 ```
 
+## P4.4a: Doctor Report
+
+يحتوي المشروع الآن على تقرير Doctor موحد يعيد فحوصًا محلية معزولة دون تشغيل أوامر التحقق أو فحوص الشبكة. المخرجات باللغة الإنجليزية فقط، ويمكن طلب JSON صالح للـCI:
+
+```sh
+python -m termux_coder doctor --workspace ~/my-project
+python -m termux_coder doctor --workspace ~/my-project --json
+python -m termux_coder doctor --workspace ~/my-project --verbose
+```
+
+كل فحص يعيد `ok` أو `warning` أو `error` أو `skipped` مع الفئة والمدة والتفاصيل المنقحة. التحذيرات لا تجعل الأمر يفشل، بينما `error` و`timeout` يعيدان exit code يساوي 1. الخيار `--network` محجوز للمرحلة التالية ولا ينفذ live probes في P4.4a.
+
 ## P4.3: Verification Threat Model
 
 تشغيل `pytest` أو أي فحص للمشروع ليس قراءة آمنة تلقائيًا؛ فالفحوص قد تحمل `conftest.py` أو plugins أو كود المشروع. لذلك يطلب `VerificationRunner` صيغة argv في `.termux-coder.toml`، يرفض shell strings و`python -c` وتشغيل ملفات Python مباشرة، يقيّد وحدات Python المسموحة، يفرض timeout صلبًا قدره 30 ثانية، يحد المخرجات، ويوقف process group عند التعليق. كما يوقف حلقة الإصلاح بعد ثلاث محاولات افتراضيًا ويستخدم rollback عند توفر PatchPlan.

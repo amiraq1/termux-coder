@@ -1,123 +1,267 @@
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 import sys
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.10
-    import tomli as tomllib
+import tempfile
+import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable, Literal
 
-from .. import logo
 from ..config import Settings
-from ..security.jail import WorkspaceJail, JailViolation
+from ..security.audit import AuditLog
+from ..security.jail import JailViolation, WorkspaceJail
+from ..security.policy import PolicyEngine
+from ..security.scrubber import scrub
+from ..tools.duckduckgo import DuckDuckGoProvider
+from ..tools.official_docs import OfficialDocsProvider
+from ..tools.resilient_provider import ResilientWebSearchProvider
 from .verification import VerificationRunner
 
 
-def _ok(label: str, detail: str = "") -> None:
-    print(f"  [✓] {label}" + (f" — {detail}" if detail else ""))
+CheckStatus = Literal["ok", "warning", "error", "timeout", "skipped"]
 
 
-def _warn(label: str, detail: str = "") -> None:
-    print(f"  [!] {label}" + (f" — {detail}" if detail else ""))
+@dataclass(frozen=True)
+class CheckResult:
+    name: str
+    category: str
+    status: CheckStatus
+    message: str
+    details: dict[str, object]
+    duration_ms: int
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
-def _fail(label: str, detail: str = "") -> None:
-    print(f"  [✗] {label}" + (f" — {detail}" if detail else ""))
+@dataclass(frozen=True)
+class DoctorReport:
+    schema_version: int
+    timestamp: str
+    version: str
+    checks: tuple[CheckResult, ...]
+
+    @property
+    def all_passed(self) -> bool:
+        return not any(check.status in {"error", "timeout"} for check in self.checks)
+
+    @property
+    def exit_code(self) -> int:
+        return 0 if self.all_passed else 1
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "timestamp": self.timestamp,
+            "version": self.version,
+            "checks": [check.as_dict() for check in self.checks],
+            "all_passed": self.all_passed,
+            "exit_code": self.exit_code,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(scrub(self.as_dict()), ensure_ascii=False, indent=2, sort_keys=True)
+
+    def to_human_readable(self, *, verbose: bool = False) -> str:
+        lines = [f"termux-coder doctor (schema {self.schema_version})", ""]
+        for check in self.checks:
+            label = check.status.upper()
+            line = f"[{label:<7}] {check.name}: {check.message}"
+            if check.duration_ms:
+                line += f" ({check.duration_ms}ms)"
+            lines.append(line)
+            if verbose and check.details:
+                details = scrub(check.details)
+                lines.append(f"          details: {json.dumps(details, ensure_ascii=False, sort_keys=True)}")
+        lines.extend(
+            [
+                "",
+                f"Result: {'PASS' if self.all_passed else 'FAIL'}",
+                f"Checks: {len(self.checks)}",
+            ]
+        )
+        return "\n".join(lines)
 
 
-def run_doctor(settings: Settings) -> int:
-    logo.print_banner()
-    problems = 0
+class DoctorRunner:
+    """Run bounded local diagnostics without mutating the workspace."""
 
-    # 1) بايثون
-    v = sys.version_info
-    if v >= (3, 10):
-        _ok(f"python {v.major}.{v.minor}.{v.micro}")
-    else:
-        _fail("python", "يلزم >= 3.10"); problems += 1
+    def __init__(self, settings: Settings, *, version: str = "unknown") -> None:
+        self.settings = settings
+        self.version = version
 
-    # 2) التبعيات
-    for mod in ("textual", "openai"):
+    @staticmethod
+    def _run_check(
+        name: str,
+        category: str,
+        check: Callable[[], tuple[CheckStatus, str, dict[str, object]]],
+    ) -> CheckResult:
+        started = time.monotonic()
         try:
-            __import__(mod)
-            _ok(mod)
-        except Exception:
-            _fail(mod, "pip install textual openai"); problems += 1
+            status, message, details = check()
+        except Exception as exc:
+            status, message, details = "error", "check failed", {"error": scrub(str(exc))}
+        duration_ms = int((time.monotonic() - started) * 1000)
+        return CheckResult(name, category, status, scrub(message), scrub(details), duration_ms)
 
-    # 3) الأدوات الثنائية
-    for binary, hint in [
-        ("git", "pkg install git"),
-        ("grep", "pkg install grep"),
-        ("node", "اختياري: pkg install nodejs (MCP)"),
-        ("pylsp", "اختياري: pip install python-lsp-server (LSP)"),
-    ]:
-        if shutil.which(binary):
-            _ok(binary)
-        elif hint.startswith("اختياري"):
-            _warn(binary, hint)
-        else:
-            _fail(binary, hint); problems += 1
+    def _python(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        version = sys.version_info
+        if version < (3, 10):
+            return "error", "Python >= 3.10 is required", {"version": sys.version}
+        return "ok", f"Python {version.major}.{version.minor}.{version.micro}", {"version": sys.version}
 
-    # 4) بيانات الاعتماد (دروس 401 و ascii)
-    key = settings.openai_api_key
-    if key and key != "EMPTY" and key.isascii():
-        _ok("api key", "present (ASCII-valid)")
-    else:
-        _fail("api key", "حرّر ~/termux-coder/env_nvidia.sh باقتباسات إنجليزية ثم source ~/.bashrc")
-        problems += 1
-    _ok("base url", settings.openai_base_url)
-    _ok("model", settings.model)
+    def _dependencies(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        missing: list[str] = []
+        for module in ("textual", "openai", "httpx", "bs4"):
+            try:
+                __import__(module)
+            except Exception:
+                missing.append(module)
+        if missing:
+            return "error", "required Python dependencies are missing", {"missing": missing}
+        return "ok", "required Python dependencies are available", {
+            "checked": ["textual", "openai", "httpx", "bs4"]
+        }
 
-    # 5) مساحة العمل
-    ws = settings.workspace.resolve()
-    if ws.exists():
-        _ok("workspace", str(ws))
-    else:
-        _fail("workspace", "المجلد غير موجود"); problems += 1
-    if ws == Path.home():
-        _warn("workspace = home", "يُفضّل مجلد مشروع مستقل")
-    try:
-        WorkspaceJail(ws)
-        _ok("workspace jail", "path resolution is inside workspace")
-    except (JailViolation, OSError) as exc:
-        _fail("workspace jail", str(exc)); problems += 1
+    def _binaries(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        required = ("git", "grep")
+        optional = ("node", "pylsp")
+        missing_required = [name for name in required if shutil.which(name) is None]
+        missing_optional = [name for name in optional if shutil.which(name) is None]
+        if missing_required:
+            return "error", "required binaries are missing", {"missing": missing_required}
+        if missing_optional:
+            return "warning", "required binaries are available; optional tools are missing", {
+                "optional_missing": missing_optional
+            }
+        return "ok", "required and optional binaries are available", {"checked": [*required, *optional]}
 
-    # 6) إعداد التحقق: parse فقط، دون تنفيذ الأمر
-    verification_path = ws / ".termux-coder.toml"
-    if not verification_path.exists():
-        _warn("verification config", "not configured; verification will be skipped")
-    else:
-        runner = VerificationRunner(ws, settings)
+    def _policy(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        try:
+            engine = PolicyEngine(self.settings.security_mode)
+            decision = engine.evaluate_tool("read_file")
+            if not decision.allowed or decision.requires_approval:
+                return "error", "read policy is not automatic", {"mode": self.settings.security_mode}
+            return "ok", f"policy mode {self.settings.security_mode}", {"risk": decision.risk}
+        except Exception as exc:
+            return "error", "policy configuration is invalid", {"error": str(exc)}
+
+    def _workspace(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        workspace = self.settings.workspace.resolve()
+        if not workspace.is_dir():
+            return "error", "workspace directory does not exist", {"workspace": str(workspace)}
+        try:
+            jail = WorkspaceJail(workspace)
+            probe = jail.check(".")
+        except (JailViolation, OSError) as exc:
+            return "error", "workspace jail initialization failed", {"error": str(exc)}
+        status: CheckStatus = "warning" if workspace == Path.home().resolve() else "ok"
+        message = "workspace jail is valid"
+        if status == "warning":
+            message = "workspace is the home directory; use a project directory when possible"
+        return status, message, {"workspace": str(probe)}
+
+    def _scrubber(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        sample = {"api_key": "doctor-secret", "message": "safe diagnostic"}
+        cleaned = scrub(sample)
+        if "doctor-secret" in json.dumps(cleaned):
+            return "error", "secret scrubber failed its sample check", {}
+        return "ok", "secret scrubber redacts sensitive fields", {"sample": cleaned}
+
+    def _audit(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        with tempfile.TemporaryDirectory(prefix="termux-coder-doctor-") as directory:
+            path = Path(directory) / "audit.jsonl"
+            AuditLog(path).log("doctor_check", api_key="doctor-secret")
+            content = path.read_text(encoding="utf-8")
+            if "doctor-secret" in content:
+                return "error", "audit log persistence leaked a secret", {}
+        return "ok", "audit log writes scrubbed JSONL", {}
+
+    def _verification(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        workspace = self.settings.workspace.resolve()
+        runner = VerificationRunner(workspace, self.settings)
         argv, reason = runner._load_argv()
         if argv is None:
-            _fail("verification config", reason); problems += 1
-        else:
-            _ok("verification config", f"valid and allowlisted (not executed): {' '.join(argv)}")
+            if reason == "no verification config":
+                return "skipped", "verification config is not present", {}
+            return "error", "verification config is invalid", {"reason": reason}
+        return "ok", "verification config is valid and allowlisted; command not executed", {
+            "argv": list(argv),
+            "timeout_s": runner._configured_timeout_s,
+        }
 
-    # 7) قاعدة الجلسات (sqlite + WAL)
-    try:
-        settings.state_dir.mkdir(parents=True, exist_ok=True)
-        db = settings.state_dir / "doctor.db"
-        conn = sqlite3.connect(str(db))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("CREATE TABLE IF NOT EXISTS t(x)")
-        conn.close()
-        db.unlink(missing_ok=True)
-        _ok("sessions db (sqlite/WAL)")
-    except Exception as e:
-        _fail("sqlite/WAL", str(e)); problems += 1
+    def _sessions(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        try:
+            with tempfile.TemporaryDirectory(prefix="termux-coder-doctor-") as directory:
+                db = Path(directory) / "sessions.db"
+                with sqlite3.connect(db) as connection:
+                    journal_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                    connection.execute("CREATE TABLE IF NOT EXISTS doctor_check(value TEXT)")
+                return "ok", "SQLite session storage is writable", {"journal_mode": journal_mode}
+        except Exception as exc:
+            return "error", "SQLite session storage check failed", {"error": str(exc)}
 
-    # 8) Termux:API (اختياري)
-    if shutil.which("termux-notification"):
-        _ok("termux-api")
-    else:
-        _warn("termux-api", "اختياري: pkg install termux-api")
+    def _provider_health(self) -> tuple[CheckStatus, str, dict[str, object]]:
+        base = DuckDuckGoProvider(
+            timeout_s=self.settings.web_search_timeout_s,
+            max_response_bytes=self.settings.web_search_max_response_bytes,
+            max_results=self.settings.web_search_max_results,
+        )
+        provider: object = base
+        if self.settings.web_search_provider == "official_docs":
+            provider = OfficialDocsProvider(base, allowed_domains=self.settings.official_docs_domains)
+        resilient = ResilientWebSearchProvider(
+            provider,
+            max_retries=self.settings.web_search_max_retries,
+            base_delay_s=self.settings.web_search_retry_base_delay_s,
+            failure_threshold=self.settings.web_search_circuit_failure_threshold,
+            cooldown_s=self.settings.web_search_circuit_cooldown_s,
+            cache_ttl_s=self.settings.web_search_cache_ttl_s,
+            max_cache_entries=self.settings.web_search_cache_entries,
+        )
+        return "ok", f"{self.settings.web_search_provider} provider is configured", {
+            "health": resilient.health().as_dict(),
+            "network_probe": "not run; use a future explicit network flag",
+        }
 
-    print()
-    if problems == 0:
-        logo.ctrl("doctor", "كل شيء سليم — جاهز للإقلاع")
-    else:
-        logo.ctrl("doctor", f"{problems} مشكلة تحتاج إصلاحًا")
-    return 1 if problems else 0
+    def run(self) -> DoctorReport:
+        checks = (
+            ("python", "environment", self._python),
+            ("dependencies", "environment", self._dependencies),
+            ("binaries", "environment", self._binaries),
+            ("policy", "security", self._policy),
+            ("workspace", "security", self._workspace),
+            ("secret_scrubber", "security", self._scrubber),
+            ("audit_log", "security", self._audit),
+            ("verification_config", "verification", self._verification),
+            ("session_storage", "data", self._sessions),
+            ("provider_health", "network", self._provider_health),
+        )
+        results = tuple(self._run_check(name, category, check) for name, category, check in checks)
+        return DoctorReport(
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            version=self.version,
+            checks=results,
+        )
+
+
+def run_doctor(
+    settings: Settings,
+    *,
+    json_output: bool = False,
+    verbose: bool = False,
+    network: bool = False,
+) -> int:
+    """Run local diagnostics; network is reserved for the explicit next phase."""
+    del network  # P4.4a deliberately performs no live network probes.
+    report = DoctorRunner(settings).run()
+    print(report.to_json() if json_output else report.to_human_readable(verbose=verbose))
+    return report.exit_code
+
+
+__all__ = ["CheckResult", "DoctorReport", "DoctorRunner", "run_doctor"]

@@ -12,6 +12,9 @@ def main() -> None:
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--cli", action="store_true", help="force CLI mode (default: TUI)")
     parser.add_argument("--version", action="store_true")
+    parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output for doctor")
+    parser.add_argument("--verbose", action="store_true", help="show doctor check details")
+    parser.add_argument("--network", action="store_true", help="reserved for doctor network probes")
     args = parser.parse_args()
 
     from .config import Settings
@@ -25,7 +28,14 @@ def main() -> None:
 
     if args.command == "doctor":
         from .core.doctor import run_doctor
-        raise SystemExit(run_doctor(settings))
+        raise SystemExit(
+            run_doctor(
+                settings,
+                json_output=args.json_output,
+                verbose=args.verbose,
+                network=args.network,
+            )
+        )
 
     if args.cli:
         from .cli import cli_main
