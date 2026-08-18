@@ -71,6 +71,24 @@ class Settings:
     web_search_max_results: int = field(
         default_factory=lambda: int(_env("SEARCH_MAX_RESULTS", "5"))
     )
+    web_search_max_retries: int = field(
+        default_factory=lambda: int(_env("SEARCH_MAX_RETRIES", "2"))
+    )
+    web_search_retry_base_delay_s: float = field(
+        default_factory=lambda: float(_env("SEARCH_RETRY_BASE_DELAY", "0.25"))
+    )
+    web_search_circuit_failure_threshold: int = field(
+        default_factory=lambda: int(_env("SEARCH_CIRCUIT_FAILURES", "3"))
+    )
+    web_search_circuit_cooldown_s: float = field(
+        default_factory=lambda: float(_env("SEARCH_CIRCUIT_COOLDOWN", "60"))
+    )
+    web_search_cache_ttl_s: float = field(
+        default_factory=lambda: float(_env("SEARCH_CACHE_TTL", "30"))
+    )
+    web_search_cache_entries: int = field(
+        default_factory=lambda: int(_env("SEARCH_CACHE_ENTRIES", "32"))
+    )
 
     repo_map_enabled: bool = field(default_factory=lambda: _env("REPO_MAP", "1") == "1")
     repo_map_budget: int = field(default_factory=lambda: int(_env("REPO_MAP_BUDGET", "6000")))

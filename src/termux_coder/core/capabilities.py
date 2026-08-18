@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from ..tools.web_models import WebSearchArgs, WebSearchResult
 from ..tools.web_provider import WebSearchProvider
@@ -48,6 +48,11 @@ class WebSearchCapabilityAdapter:
     async def search(self, args: WebSearchArgs) -> WebSearchResult:
         """Delegate only the read-only search operation to the provider."""
         return await self.provider.search(args)
+
+    def health(self) -> Any | None:
+        """Expose optional provider health metadata without granting control."""
+        health = getattr(self.provider, "health", None)
+        return health() if callable(health) else None
 
 
 class CapabilityRegistry:

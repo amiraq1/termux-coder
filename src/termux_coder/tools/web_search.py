@@ -66,8 +66,9 @@ async def web_search(args: WebSearchArgs, ctx) -> str:
         provider=getattr(ctx.settings, "web_search_provider", "duckduckgo"),
         capability="web_search",
     )
+    provider = _provider(ctx)
     try:
-        result: WebSearchResult = await _provider(ctx).search(bounded_args)
+        result: WebSearchResult = await provider.search(bounded_args)
     except WebSearchTimeout as exc:
         ctx.audit.log("web_search_failed", query=args.query, error=str(exc), kind="timeout")
         await ctx.ui.on_event("web_search_failed", query=args.query, error=str(exc))
@@ -82,6 +83,13 @@ async def web_search(args: WebSearchArgs, ctx) -> str:
         return "web search error: unexpected provider failure"
 
     payload = result.model_dump_json()
+    health = getattr(provider, "health", None)
+    health_value = health() if callable(health) else None
+    health_data = (
+        health_value.as_dict()
+        if health_value is not None and hasattr(health_value, "as_dict")
+        else None
+    )
     ctx.audit.log(
         "web_search_finished",
         query=result.query,
@@ -89,6 +97,7 @@ async def web_search(args: WebSearchArgs, ctx) -> str:
         result_count=len(result.results),
         truncated=result.truncated,
         elapsed_ms=result.search_time_ms,
+        health=health_data,
     )
     await ctx.ui.on_event(
         "web_search_finished",
@@ -96,6 +105,7 @@ async def web_search(args: WebSearchArgs, ctx) -> str:
         provider=result.provider,
         result_count=len(result.results),
         truncated=result.truncated,
+        health=health_data,
     )
     return payload
 

@@ -37,6 +37,12 @@
 | TERMUX_CODER_SEARCH_TIMEOUT | — | 10 seconds |
 | TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES | — | 500000 |
 | TERMUX_CODER_SEARCH_MAX_RESULTS | — | 5 |
+| TERMUX_CODER_SEARCH_MAX_RETRIES | — | 2 |
+| TERMUX_CODER_SEARCH_RETRY_BASE_DELAY | — | 0.25 seconds |
+| TERMUX_CODER_SEARCH_CIRCUIT_FAILURES | — | 3 |
+| TERMUX_CODER_SEARCH_CIRCUIT_COOLDOWN | — | 60 seconds |
+| TERMUX_CODER_SEARCH_CACHE_TTL | — | 30 seconds |
+| TERMUX_CODER_SEARCH_CACHE_ENTRIES | — | 32 |
 
 يُرسل `TERMUX_CODER_SINGLE_TOOL_CALLS=1` قيمة `parallel_tool_calls=false` لمزود OpenAI-compatible، وهو الوضع المناسب لنماذج Llama المحلية التي لا تقبل عدة tool calls في الاستجابة نفسها. يمكن ضبطه إلى `0` فقط مع مزود يدعم الاستدعاءات المتوازية.
 
@@ -82,6 +88,17 @@ termux-coder --workspace ~/my-project
 ## P4.1: Audit Redaction
 
 يُمرّر كل payload إلى `SecretScrubber` داخل `AuditLog` قبل التخزين. التنقيح يشمل مفاتيح مثل `api_key` و`password` و`cookie` و`authorization`، وأنماطًا معروفة لمفاتيح OpenAI وGitHub وAWS وBearer tokens وروابط credentials. لا يغيّر التنقيح البيانات المستخدمة في التنفيذ؛ فهو يعمل عند حد التخزين فقط، مع بقاء الحاجة إلى عدم إرسال الأسرار إلى الوكيل أصلًا.
+
+## P4.2: Research Provider Hardening
+
+يمر مزود البحث عبر `ResilientWebSearchProvider` عند تشغيل Agent. الطبقة تضيف retry محدودًا للأخطاء المؤقتة، cache قصيرة العمر، circuit breaker بعد فشل متكرر، وhealth metadata تظهر في أحداث البحث وسجل التدقيق. لا تعيد المحاولة للأخطاء غير المؤقتة، ولا تغيّر سياسة الموافقة أو صلاحية الأداة.
+
+```text
+retry: 2 محاولات إضافية كحد افتراضي
+backoff: 0.25s ثم 0.5s
+circuit: 3 failures → 60s cooldown
+cache: 30s TTL و32 نتيجة كحد أقصى
+```
 
 ## البحث عبر الإنترنت والمعرفة الموثقة
 

@@ -55,6 +55,7 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `CapabilityRegistry` | Registers explicitly configured external capabilities | No dynamic discovery; metadata does not grant permissions |
 | `WebSearchCapabilityAdapter` | Adapts a read-only search provider to the capability contract | Delegates search only; no shell or file access |
 | `OfficialDocsProvider` | Filters search output to an explicit official-domain allowlist | Rejects non-allowlisted hosts and remains read-only |
+| `ResilientWebSearchProvider` | Adds bounded retries, TTL cache, circuit breaker, and health metadata | Read-only wrapper; does not alter policy decisions |
 
 ## Research Contracts
 
@@ -108,7 +109,7 @@ PatchPlan.plan_id + audit metadata
 
 ## Web Search Boundary
 
-`web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands. In `GRANULAR` mode, web search and page fetch are automatic because they are read-only network operations; they never grant permission to mutate files. When `SEARCH_PROVIDER=official_docs`, `OfficialDocsProvider` filters results by exact host or subdomain membership in `OFFICIAL_DOCS_DOMAINS`; it does not treat a lookalike host such as `docs.python.org.evil.test` as official.
+`web_search` is a read-only network tool registered with `Permission.NETWORK`. It uses an asynchronous provider and returns bounded `WebSearchResult` data. In `ASK` mode, network approval is independent from file-write approval. In `READONLY` mode, web search may read public sources but cannot write files or execute commands. In `GRANULAR` mode, web search and page fetch are automatic because they are read-only network operations; they never grant permission to mutate files. When `SEARCH_PROVIDER=official_docs`, `OfficialDocsProvider` filters results by exact host or subdomain membership in `OFFICIAL_DOCS_DOMAINS`; it does not treat a lookalike host such as `docs.python.org.evil.test` as official. The configured provider is wrapped by `ResilientWebSearchProvider` with bounded retries, TTL cache, circuit breaking, and optional health metadata.
 
 The current web knowledge path is:
 
@@ -118,6 +119,7 @@ web_search arguments
   → CapabilityRegistry
   → WebSearchCapabilityAdapter
   → OfficialDocsProvider (optional allowlist filter)
+  → ResilientWebSearchProvider
   → DuckDuckGoProvider
   → bounded HTML response
   → WebSanitizer
@@ -177,6 +179,12 @@ The orchestrator must not transition to file execution merely because a search o
 | `TERMUX_CODER_SEARCH_TIMEOUT` | `10` | Total network timeout in seconds |
 | `TERMUX_CODER_SEARCH_MAX_RESPONSE_BYTES` | `500000` | Maximum provider response size |
 | `TERMUX_CODER_SEARCH_MAX_RESULTS` | `5` | Maximum results returned to context |
+| `TERMUX_CODER_SEARCH_MAX_RETRIES` | `2` | Additional retries for transient provider failures |
+| `TERMUX_CODER_SEARCH_RETRY_BASE_DELAY` | `0.25` | Exponential backoff base delay in seconds |
+| `TERMUX_CODER_SEARCH_CIRCUIT_FAILURES` | `3` | Consecutive transient failures before opening the circuit |
+| `TERMUX_CODER_SEARCH_CIRCUIT_COOLDOWN` | `60` | Circuit cooldown in seconds |
+| `TERMUX_CODER_SEARCH_CACHE_TTL` | `30` | Cache lifetime in seconds; `0` disables cache |
+| `TERMUX_CODER_SEARCH_CACHE_ENTRIES` | `32` | Maximum cached query entries |
 | `SECURITY` | `ASK` | `ASK`, `READONLY`, `GRANULAR`, or `AUTO`; GRANULAR auto-allows reads, web search, and allowlisted verification only |
 
 ## Testing Strategy

@@ -28,6 +28,7 @@ from ..tools.preview import PatchPreviewService
 from ..tools.duckduckgo import DuckDuckGoProvider
 from ..tools.fetch_page import FetchPageService
 from ..tools.official_docs import OfficialDocsProvider
+from ..tools.resilient_provider import ResilientWebSearchProvider
 
 
 @dataclass
@@ -116,6 +117,15 @@ class Agent:
                 )
             else:
                 search_provider = base_search_provider
+            search_provider = ResilientWebSearchProvider(
+                search_provider,
+                max_retries=getattr(settings, "web_search_max_retries", 2),
+                base_delay_s=getattr(settings, "web_search_retry_base_delay_s", 0.25),
+                failure_threshold=getattr(settings, "web_search_circuit_failure_threshold", 3),
+                cooldown_s=getattr(settings, "web_search_circuit_cooldown_s", 60.0),
+                cache_ttl_s=getattr(settings, "web_search_cache_ttl_s", 30.0),
+                max_cache_entries=getattr(settings, "web_search_cache_entries", 32),
+            )
             research_provider = search_provider
             if getattr(settings, "capability_adapters_enabled", True):
                 search_adapter = WebSearchCapabilityAdapter(search_provider)
