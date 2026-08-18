@@ -226,11 +226,14 @@ async def cli_main(settings: Settings) -> None:
 
         try:
             await agent.run_turn(text)
-            final_text = _latest_assistant_text(agent)
-            if final_text:
-                print()
-                logo.ctrl("answer")
-                print(final_text)
+            turn_result = getattr(agent, "last_turn_result", None)
+            turn_state = getattr(getattr(turn_result, "state", None), "value", None)
+            if turn_result is None or turn_state == "idle":
+                final_text = _latest_assistant_text(agent)
+                if final_text:
+                    print()
+                    logo.ctrl("answer")
+                    print(final_text)
         except AuthenticationError:
             print(logo.paint("Authentication failed: the API key is missing or invalid.", logo.TEAL))
             print("Load your environment file before starting the agent.")

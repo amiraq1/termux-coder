@@ -32,6 +32,7 @@ from ..models.contracts import (
     ToolResult,
 )
 from ..security.audit import AuditLog
+from ..providers.router import ModelRouter
 from ..security.policy import Permission, PolicyEngine
 from .registry import ToolRegistry
 from .recovery import recover_tool_calls, sanitize_tool_calls
@@ -134,6 +135,15 @@ def requires_current_docs(user_text: str) -> bool:
     return any(marker in lowered for marker in CURRENT_DOC_MARKERS)
 
 
+MUTATION_TOOLS = frozenset({
+    "apply_patch",
+    "apply_symbol_patch",
+    "apply_patch_plan",
+    "write_file",
+    "delete_file",
+})
+
+
 class AgentOrchestrator:
     """
     منسّق الوكيل — آلة حالات صريحة.
@@ -185,8 +195,15 @@ class AgentOrchestrator:
         self._cancel_event = asyncio.Event()
         self._tool_results: list[ToolResult] = []
         self._research_tools = {"web_search", "fetch_page"}
+        self._edit_requested = False
 
     # ── واجهة الحالة ─────────────────────────────────────────
+
+    def _has_successful_edit(self) -> bool:
+        return any(
+            result.ok and result.tool in MUTATION_TOOLS
+            for result in self._tool_results
+        )
 
     @property
     def state(self) -> TurnState:
@@ -790,6 +807,7 @@ class AgentOrchestrator:
              if message.get("role") == "user"),
             "",
         )
+        self._edit_requested = ModelRouter.looks_like_edit(user_text)
         research_ok, research_error = await self._run_research_gate(
             user_text,
             messages,
@@ -849,6 +867,23 @@ class AgentOrchestrator:
                 await self._on_event("assistant_done")
 
                 if not provider_resp.has_tool_calls:
+                    # A mutation request cannot succeed on text alone.
+                    if self._edit_requested and not self._has_successful_edit():
+                        error = "edit not applied: no approved patch completed"
+                        self._transition(TurnState.FAILED)
+                        self.audit.log(
+                            "edit_not_applied",
+                            turn_id=self._turn_id,
+                            rounds=rounds_used,
+                            reason=error,
+                        )
+                        await self._on_event("edit_not_applied", reason=error)
+                        return TurnResult(
+                            state=TurnState.FAILED,
+                            error=error,
+                            tool_results=self._tool_results,
+                            rounds_used=rounds_used,
+                        )
                     # لا أدوات — الدورة انتهت
                     final_text = provider_resp.assistant_message.get("content") or ""
                     self._transition(TurnState.IDLE)

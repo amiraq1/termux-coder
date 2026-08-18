@@ -154,6 +154,7 @@ class Agent:
             self.capability_registry,
         )
         self.orchestrator: AgentOrchestrator | None = None
+        self.last_turn_result = None
 
     def _sanitize_assistant_tool_calls(self, assistant: dict) -> list[dict] | None:
         raw_calls = assistant.get("tool_calls")
@@ -222,6 +223,7 @@ class Agent:
                 self.messages,
                 on_token=self.ui.on_token,
             )
+            self.last_turn_result = result
             if result.state != TurnState.IDLE:
                 await self.ui.on_event(
                     "orchestrator_result",
@@ -255,6 +257,7 @@ class Agent:
         self.messages.insert(1, {"role": "system", "content": content})
 
     async def run_turn(self, user_text: str) -> None:
+        self.last_turn_result = None
         if self.settings.orchestrator_enabled:
             await self._run_turn_orchestrated(user_text)
             return

@@ -76,7 +76,8 @@ def test_patch_is_refused_before_read_and_leaves_file_unchanged(e2e_components):
         )
         result = await orch.run_turn([{"role": "user", "content": "edit without reading"}])
 
-        assert result.state.value == "idle"
+        assert result.state.value == "failed"
+        assert result.error == "edit not applied: no approved patch completed"
         assert path.read_text(encoding="utf-8") == original
         assert result.tool_results
         assert result.tool_results[0].ok is False
