@@ -1,65 +1,87 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
+from typing import Any
 
 from .. import logo
 from .base import AgentUI
 
 
 class CliUI(AgentUI):
+    """Compact terminal UI designed for narrow Termux screens.
+
+    Model tokens and internal reasoning are deliberately kept off-screen.
+    The CLI shows only durable status updates, approvals, and the final answer.
+    """
+
+    def __init__(self) -> None:
+        self._token_buffer: list[str] = []
+
     def thinking(self):
-        return logo.Thinking()
+        # Do not expose model reasoning or a spinner in the mobile CLI.
+        return nullcontext()
 
     async def on_token(self, text: str) -> None:
-        print(text, end="", flush=True)
+        # Keep streamed content available for diagnostics without printing
+        # intermediate model text that may be a tool-call preamble.
+        if text:
+            self._token_buffer.append(text)
 
-    async def on_event(self, kind: str, **payload) -> None:
+    async def on_event(self, kind: str, **payload: Any) -> None:
         if kind == "turn_start":
-            print()
-        elif kind == "assistant_done":
-            print()
+            self._token_buffer.clear()
+            logo.ctrl("working")
+        elif kind in ("assistant_done", "turn_end"):
+            return
         elif kind in ("tool_recovered", "patch_recovered"):
-            logo.ctrl("recovered", "tool call extracted from text")
+            logo.ctrl("recovered", "tool call normalized")
         elif kind == "map_ready":
-            logo.ctrl("map", f"{payload.get('files')} files · {payload.get('symbols')} symbols")
+            files = payload.get("files", 0)
+            symbols = payload.get("symbols", 0)
+            if files or symbols:
+                logo.ctrl("map", f"{files} files · {symbols} symbols")
         elif kind == "model_route":
-            logo.ctrl(
-                f"route:{payload.get('tier')}",
-                f"{payload.get('model', '')} · {payload.get('reason', '')}",
-            )
+            tier = payload.get("tier") or "auto"
+            reason = payload.get("reason") or ""
+            detail = tier if not reason else f"{tier} · {reason}"
+            logo.ctrl("route", detail)
         elif kind == "git_info":
-            logo.ctrl(f"git:{payload.get('label')}", payload.get("detail", ""))
+            label = payload.get("label") or "status"
+            logo.ctrl(f"git:{label}", payload.get("detail", ""))
         elif kind == "lsp_on":
             logo.ctrl("lsp", payload.get("server", ""))
         elif kind == "lsp_off":
             logo.ctrl("lsp off", payload.get("reason", ""))
         elif kind == "lsp_diag":
-            logo.ctrl(f"lsp:{payload.get('path')}", f"{payload.get('count')} problems")
-        elif kind == "context_stats":
-            total = payload.get("total_tokens", 0)
-            budget = payload.get("budget", 1)
-            pct = payload.get("usage_pct", 0)
-            logo.ctrl("context", f"{pct:.0f}% · {total/1000:.1f}k / {budget/1000:.1f}k")
+            logo.ctrl(f"lsp:{payload.get('path') or 'file'}", f"{payload.get('count', 0)} problems")
         elif kind == "tool_start":
-            print()
-            logo.ctrl(f"tool:{payload.get('name')}", str(payload.get("args"))[:120])
+            name = payload.get("name") or "operation"
+            logo.ctrl("tool", str(name))
         elif kind == "tool_result":
-            print(str(payload.get("text"))[:1500])
+            name = payload.get("name") or "operation"
+            logo.ctrl("tool done", str(name))
         elif kind == "verification_start":
-            logo.ctrl("verify", "running project verification")
+            logo.ctrl("verify", "running")
         elif kind == "verification_result":
-            logo.ctrl(
-                f"verify:{payload.get('status')}",
-                f"exit={payload.get('exit_code')} · {payload.get('duration_ms')}ms",
-            )
+            status = payload.get("status") or "unknown"
+            duration = payload.get("duration_ms")
+            detail = str(status)
+            if duration is not None:
+                detail += f" · {duration}ms"
+            logo.ctrl("verify", detail)
         elif kind == "tool_denied":
-            logo.ctrl("denied", f"{payload.get('tool')}: {payload.get('reason', '')}")
+            tool = payload.get("tool") or "operation"
+            logo.ctrl("denied", f"{tool}: {payload.get('reason', '')}")
         elif kind == "approval_requested":
-            logo.ctrl("approval", f"{len(payload.get('calls', []))} operation(s) pending")
+            count = len(payload.get("calls", []))
+            logo.ctrl("approval", f"{count} operation(s) pending")
         elif kind == "orchestrator_result":
-            logo.ctrl("orchestrator", f"{payload.get('state')}: {payload.get('error', '')}")
+            state = payload.get("state") or "failed"
+            error = payload.get("error") or ""
+            logo.ctrl("status", f"{state}: {error}" if error else state)
         elif kind == "max_rounds":
-            print("stopped: too many tool rounds")
+            logo.ctrl("stopped", "maximum tool rounds reached")
 
     async def request_approval(self, kind: str, payload: dict) -> bool:
         print()
@@ -88,7 +110,7 @@ class CliUI(AgentUI):
             print(logo.paint(f"── {payload.get('title')} ──", logo.TEAL))
             print(payload.get("body", ""))
         else:
-            logo.ctrl("request command", payload.get("command", ""))
+            logo.ctrl("approval", payload.get("command", ""))
         loop = asyncio.get_running_loop()
         answer = await loop.run_in_executor(
             None, input, logo.paint("Apply? [y/N] ", logo.TEALB)

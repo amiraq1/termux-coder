@@ -139,6 +139,23 @@ def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
     return Agent(settings, router, build_registry(), ui, store=store, resume_id=resume_id)
 
 
+def _friendly_reply(text: str) -> str | None:
+    """Return a concise local reply for conversational greetings."""
+    normalized = " ".join(text.casefold().split()).strip("!?.,،")
+    if normalized in {"hi", "hello", "hey", "سلام", "هلا", "مرحبا"}:
+        return "Hello. How can I help you with your project?"
+    return None
+
+
+def _latest_assistant_text(agent) -> str:
+    for message in reversed(agent.messages):
+        if message.get("role") == "assistant":
+            content = str(message.get("content") or "").strip()
+            if content:
+                return content
+    return ""
+
+
 async def cli_main(settings: Settings) -> None:
     logo.print_banner()
     logo.ctrl("ready", f"{settings.workspace.resolve()}  security={settings.security_mode}")
@@ -199,12 +216,28 @@ async def cli_main(settings: Settings) -> None:
             logo.ctrl("session", f"{agent.session_id} · resumed ({len(agent.messages) - 1} messages)")
             continue
 
+        started = time.monotonic()
+        local_reply = _friendly_reply(text)
+        if local_reply is not None:
+            print()
+            logo.ctrl("answer")
+            print(local_reply)
+            logo.ctrl("ready", f"{time.monotonic() - started:.1f}s")
+            continue
+
         try:
             await agent.run_turn(text)
+            final_text = _latest_assistant_text(agent)
+            if final_text:
+                print()
+                logo.ctrl("answer")
+                print(final_text)
         except AuthenticationError:
-            print(logo.paint("خطأ مصادقة: مفتاح API غير صحيح أو غير مُحمّل.", logo.TEAL))
-            print("شغّل: source ~/termux-coder/env_nvidia.sh")
+            print(logo.paint("Authentication failed: the API key is missing or invalid.", logo.TEAL))
+            print("Load your environment file before starting the agent.")
         except Exception as exc:
             print(f"error: {exc}")
+        finally:
+            logo.ctrl("ready", f"{time.monotonic() - started:.1f}s")
 
     await agent.close()
