@@ -5,7 +5,7 @@ from typing import Any
 
 
 class AgentUI:
-    """عقد واجهة الوكيل: CLI و TUI يطبقان نفس العقد."""
+    """Shared UI contract implemented by the CLI and TUI."""
 
     def thinking(self):
         return nullcontext()
@@ -17,5 +17,5 @@ class AgentUI:
         pass
 
     async def request_approval(self, kind: str, payload: dict) -> bool:
-        # الافتراضي رفض: fail-safe
+        # Deny by default: fail-safe.
         return False

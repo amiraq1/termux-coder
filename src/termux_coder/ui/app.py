@@ -28,7 +28,7 @@ class ChatFeed(VerticalScroll):
 
 
 class WelcomeCard(Static):
-    """بطاقة بداية مختصرة بدل شاشة فارغة على الهاتف."""
+    """Compact start card for small terminal screens."""
 
 
 class TextualUI(AgentUI):
@@ -40,6 +40,7 @@ class TextualUI(AgentUI):
         self._last_flush = 0.0
         self._read_files = 0
         self._read_lines = 0
+        self._last_map_signature: tuple | None = None
 
     def _put(self, widget) -> None:
         feed = self.app.query_one("#feed", ChatFeed)
@@ -102,13 +103,13 @@ class TextualUI(AgentUI):
                     self._put(Static(Text(f"∷ {text}", style=theme.WHITE)))
                 self._buf = []
 
-            self._put(Static(Text(f"✳ Thought for {secs} second(s)", style=theme.DIM)))
+            # Keep the feed focused on the assistant response and actionable events.
 
         elif kind in ("tool_recovered", "patch_recovered"):
             self._put(
                 Static(
                     Text(
-                        "↻ recovered: النموذج طبع الأداة كنص — تم استخراجها وتنفيذها بأمان",
+                        "↻ recovered: the model returned a text tool call; it was parsed safely",
                         style=theme.DIM,
                     )
                 )
@@ -116,9 +117,10 @@ class TextualUI(AgentUI):
 
         elif kind == "model_route":
             tier = payload.get("tier")
-            if tier == getattr(self, "_last_tier", None) and not payload.get("escalated"):
+            route_signature = (tier, payload.get("model"), payload.get("reason"))
+            if route_signature == getattr(self.app, "_last_route_signature", None) and not payload.get("escalated"):
                 return
-            self._last_tier = tier
+            self.app._last_route_signature = route_signature
             color = theme.TEAL if tier == "smart" else theme.LAVENDER
             suffix = payload.get("reason", "auto")
             if payload.get("escalated"):
@@ -130,13 +132,18 @@ class TextualUI(AgentUI):
             )
 
         elif kind == "map_ready":
+            signature = (payload.get("files"), payload.get("symbols"))
+            if signature == getattr(self.app, "_last_map_signature", None):
+                return
+            self.app._last_map_signature = signature
             self._put(
                 Static(
                     tool_line(
                         "MAP",
                         f"{payload.get('files')} files · {payload.get('symbols')} symbols",
                         "auto",
-                    )
+                    ),
+                    markup=False,
                 )
             )
 
@@ -314,6 +321,8 @@ class TermuxCoderApp(App):
         self._busy = False
         self._verb = 0
         self._expandables: list[ExpandableStatic] = []
+        self._last_route_signature: tuple | None = None
+        self._last_map_signature: tuple | None = None
         self._phase = "READY"
         self._activity = "waiting for your request"
 
@@ -332,24 +341,6 @@ class TermuxCoderApp(App):
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
         self._render_header()
-        intro = Text()
-        intro.append("◈ agent\n", style=f"bold {theme.TEAL}")
-        intro.append(
-            f"project: {self.agent.jail.root}\n"
-            f"model: {self.agent.settings.model}\n"
-            f"security: {self.agent.settings.security_mode}\n",
-            style=theme.DIM,
-        )
-        feed.mount(WelcomeCard(
-            "◈ agent\n\n"
-            "ابدأ بطلب واضح، مثل:\n"
-            "  • حلّل بنية المشروع\n"
-            "  • اقرأ ملفًا واشرحه\n"
-            "  • اقترح تعديلًا واعرض المعاينة\n"
-            "  • شغّل التحقق بعد الموافقة",
-            id="welcome",
-        ))
-        feed.mount(Static(intro, markup=False))
         feed.mount(
             Static(
                 tool_line(
@@ -364,7 +355,7 @@ class TermuxCoderApp(App):
         self._render_status()
         self.set_interval(1.6, self._tick)
 
-    # ── الحالة ─────────────────────────────────────────────
+    # ── State ─────────────────────────────────────────────
     def add_tokens(self, n: int) -> None:
         self._tokens += n
         self._render_status()
@@ -439,7 +430,7 @@ class TermuxCoderApp(App):
         else:
             el.update(Text("» accept edits on", style=f"bold {theme.LAVENDER}") + tail)
 
-    # ── الاختصارات ─────────────────────────────────────────
+    # ── Shortcuts ─────────────────────────────────────────
     def action_toggle_mode(self) -> None:
         self.agent.policy.mode = (
             "ASK" if self.agent.policy.mode == "READONLY" else "READONLY"
@@ -456,7 +447,7 @@ class TermuxCoderApp(App):
     def action_focus_prompt(self) -> None:
         self.query_one("#prompt", Input).focus()
 
-    # ── الدورة ─────────────────────────────────────────────
+    # ── Turn lifecycle ─────────────────────────────────────
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         event.input.clear()
@@ -533,9 +524,9 @@ class TermuxCoderApp(App):
 
             if isinstance(exc, AuthenticationError):
                 msg = (
-                    "AuthenticationError: مفتاح API غير صحيح أو غير مُحمّل.\n"
-                    "الحل: source ~/termux-coder/env_nvidia.sh\n"
-                    "أو أضف السطر إلى ~/.bashrc ليُحمّل تلقائيًا في كل جلسة."
+                    "AuthenticationError: the API key is invalid or missing.\n"
+                    "Fix: source ~/termux-coder/env_nvidia.sh\n"
+                    "Or add the export to ~/.bashrc for future sessions."
                 )
             else:
                 msg = f"error: {exc}"

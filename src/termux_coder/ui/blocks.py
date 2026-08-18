@@ -7,7 +7,7 @@ from .. import theme
 
 
 class ExpandableStatic(Static):
-    """كتلة قابلة للطي عبر ctrl+o"""
+    """Expandable content toggled with Ctrl+O."""
 
     def __init__(self, full, truncated):
         super().__init__(truncated)
@@ -42,8 +42,7 @@ def updated_line(path: str, adds: int, rems: int) -> Text:
 
 def diff_renderable(diff_text: str) -> Text:
     """
-    diff على مستوى الأسطر (وليس الكلمات):
-    أبطأ تشوهًا لنص عربي/ثنائي الاتجاه من تقسيم الكلمات.
+    Render diffs line by line to preserve code alignment in narrow terminals.
     """
     t = Text()
     for line in diff_text.splitlines():
