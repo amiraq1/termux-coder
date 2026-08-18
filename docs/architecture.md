@@ -4,7 +4,7 @@
 
 `termux-coder` is a safety-first coding agent designed for Termux on Android. The architecture separates **knowledge acquisition**, **planning**, **file mutation**, and **verification** so that external web content never becomes an implicit instruction to modify the workspace.
 
-The current implementation keeps the legacy execution path available while the `AgentOrchestrator` path is enabled progressively through feature flags. The research contracts introduced in `src/termux_coder/models/research.py` define the boundary between current web knowledge and coding plans. The orchestrator now exposes a `RESEARCHING` state for web discovery and page retrieval; automatic construction of a `ResearchPacket` from those calls remains a future coordinator responsibility.
+The current implementation keeps the legacy execution path available while the `AgentOrchestrator` path is enabled progressively through feature flags. The research contracts introduced in `src/termux_coder/models/research.py` define the boundary between current web knowledge and coding plans. The orchestrator exposes a `RESEARCHING` state for web discovery and page retrieval, and `core/research.py` now provides a `ResearchCoordinator` that converts available search/page results into validated evidence packets. Automatic invocation of the coordinator from the turn loop remains a future integration step.
 
 ## System Layers
 
@@ -46,6 +46,7 @@ The diagram describes the knowledge-assisted flow. The currently available produ
 | `PatchPlan` | Applies related file changes as one transaction | Full rollback on failure |
 | `VerificationRunner` | Runs bounded, allowlisted project checks | argv only, no `shell=True` |
 | `AuditLog` | Records decisions and security-relevant events | UTC timestamps and operation context |
+| `ResearchCoordinator` | Ranks sources and converts search/page results into evidence packets | Does not grant write approval or execute mutations |
 
 ## Research Contracts
 
@@ -133,9 +134,9 @@ The boundaries are as follows:
 6. `VerificationRunner` remains the final automated check after mutation.
 7. Network approval never implies file-write approval.
 
-## Future Research-Orchestrator Integration
+## Research-Orchestrator Integration
 
-The future `ResearchCoordinator` will be a separate service rather than placing all evidence-selection logic inside `AgentOrchestrator`:
+`ResearchCoordinator` is a separate service rather than placing evidence-selection logic inside `AgentOrchestrator`:
 
 ```text
 core/research.py
@@ -145,9 +146,9 @@ core/research.py
   └── ResearchPacketBuilder
 ```
 
-The future coordinator will use `TaskIntent.requires_current_docs` to decide when the current `RESEARCHING` state should be entered automatically. It will search for candidate sources, prefer official documentation and version-compatible sources, use the protected `fetch_page` tool, construct a `ResearchPacket`, and pass only the validated packet into planning.
+The coordinator accepts a `TaskIntent`, can search through a provider, optionally fetch ranked pages through the protected `fetch_page` service, prefer official documentation and package registries, construct a validated `ResearchPacket`, and pass only evidence data into planning. Automatic invocation based on `TaskIntent.requires_current_docs` is the next integration step.
 
-The orchestrator must not transition to file execution merely because a search or page fetch returned data. A future validated packet with sufficient confidence, a PatchPlan with a Safe Preview, an approval grant tied to the plan fingerprint, and successful verification after application are required before mutation.
+The orchestrator must not transition to file execution merely because a search or page fetch returned data. A validated packet with sufficient confidence, a PatchPlan with a Safe Preview, an approval grant tied to the plan fingerprint, and successful verification after application are required before mutation. The current coordinator itself never grants approval and never mutates files.
 
 ## Configuration and Feature Flags
 
