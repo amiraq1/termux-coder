@@ -154,6 +154,7 @@ class Agent:
                     error=result.error or "",
                 )
         finally:
+            # Always release the TUI busy state, including failure and cancellation.
             await self.ui.on_event("turn_end")
 
     async def close(self) -> None:

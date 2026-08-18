@@ -132,20 +132,8 @@ class TextualUI(AgentUI):
             )
 
         elif kind == "map_ready":
-            signature = (payload.get("files"), payload.get("symbols"))
-            if signature == getattr(self.app, "_last_map_signature", None):
-                return
-            self.app._last_map_signature = signature
-            self._put(
-                Static(
-                    tool_line(
-                        "MAP",
-                        f"{payload.get('files')} files · {payload.get('symbols')} symbols",
-                        "auto",
-                    ),
-                    markup=False,
-                )
-            )
+            # Repository mapping remains internal; keep it out of the activity feed.
+            return
 
         elif kind == "read_ok":
             self._read_files += 1
@@ -290,10 +278,10 @@ class TextualUI(AgentUI):
 class TermuxCoderApp(App):
     TITLE = "◈ agent"
     BINDINGS = [
-        Binding("shift+tab", "toggle_mode", "mode", show=True),
-        Binding("ctrl+o", "toggle_expand", "expand", show=True),
-        Binding("ctrl+t", "toggle_tree", "tree", show=True),
-        Binding("ctrl+p", "focus_prompt", "prompt", show=True),
+        Binding("shift+tab", "toggle_mode", "mode", show=False),
+        Binding("ctrl+o", "toggle_expand", "expand", show=False),
+        Binding("ctrl+t", "toggle_tree", "tree", show=False),
+        Binding("ctrl+p", "focus_prompt", "prompt", show=False),
     ]
     CSS = """
     Screen { background: #07090d; color: #e7e9ee; }
@@ -307,8 +295,7 @@ class TermuxCoderApp(App):
     #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
     #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
     Input { margin: 0 1; border: tall #456fa8; background: #11151c; }
-    #modeline { height: 2; margin: 0 1; padding: 0 1; color: #9aa6b8; }
-    Footer { background: #0d1118; }
+    Footer { display: none; }
     .diff { overflow-x: auto; }
     """
 
@@ -335,22 +322,10 @@ class TermuxCoderApp(App):
                 yield Static(id="activity")
                 yield Static(id="status")
                 yield Input(id="prompt", placeholder="Ask your question…")
-                yield Static(id="modeline")
-        yield Footer()
 
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
         self._render_header()
-        feed.mount(
-            Static(
-                tool_line(
-                    "SESSION",
-                    self.agent.session_id or "-",
-                    "resumed" if self.agent.resumed else "new",
-                )
-            )
-        )
-        self._render_modeline()
         self.update_activity("READY", "waiting for your request")
         self._render_status()
         self.set_interval(1.6, self._tick)
@@ -422,20 +397,12 @@ class TermuxCoderApp(App):
         t.append(f" · {self._tokens / 1000:.1f}k", style=theme.DIM)
         self.query_one("#status", Static).update(t)
 
-    def _render_modeline(self) -> None:
-        el = self.query_one("#modeline", Static)
-        tail = Text(" [shift+tab]\n? for shortcuts", style=theme.DIM)
-        if self.agent.policy.mode == "READONLY":
-            el.update(Text("plan mode", style=f"bold {theme.ORANGE}") + tail)
-        else:
-            el.update(Text("» accept edits on", style=f"bold {theme.LAVENDER}") + tail)
-
     # ── Shortcuts ─────────────────────────────────────────
     def action_toggle_mode(self) -> None:
         self.agent.policy.mode = (
             "ASK" if self.agent.policy.mode == "READONLY" else "READONLY"
         )
-        self._render_modeline()
+        self._render_header()
 
     def action_toggle_expand(self) -> None:
         if self._expandables:
