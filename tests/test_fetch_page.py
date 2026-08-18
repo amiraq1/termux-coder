@@ -178,7 +178,7 @@ def test_fetch_page_requests_network_approval(tmp_path, monkeypatch):
     assert ui.approvals[0][0] == "network"
 
 
-def test_orchestrator_enters_researching_for_fetch_page():
+def test_orchestrator_enters_researching_for_fetch_page(tmp_path):
     from termux_coder.core.orchestrator import AgentOrchestrator, TurnState
     from termux_coder.core.registry import ToolRegistry
     from termux_coder.models.contracts import ToolResult
@@ -190,6 +190,7 @@ def test_orchestrator_enters_researching_for_fetch_page():
 
     class Settings:
         max_output_chars = 1000
+        research_auto_enabled = False
 
     class Ctx:
         settings = Settings()
@@ -200,7 +201,7 @@ def test_orchestrator_enters_researching_for_fetch_page():
     async def on_event(kind, **payload):
         events.append((kind, payload))
 
-    audit = _Audit(Path("/tmp"))
+    audit = _Audit(tmp_path)
     registry = ToolRegistry()
 
     async def handler(_args, _ctx):
