@@ -30,8 +30,12 @@
 
 | المتغير | البديل المسبوق | الافتراضي |
 |---|---|---|
-| OPENAI_API_KEY | TERMUX_CODER_OPENAI_API_KEY | EMPTY |
-| OPENAI_BASE_URL | TERMUX_CODER_OPENAI_BASE_URL | openai |
+| PROVIDER | TERMUX_CODER_PROVIDER | auto |
+| NVIDIA_API_KEY / NVIDIA_BASE_URL | TERMUX_CODER_NVIDIA_API_KEY / TERMUX_CODER_NVIDIA_BASE_URL | NVIDIA NIM |
+| OPENAI_API_KEY / OPENAI_BASE_URL | TERMUX_CODER_OPENAI_API_KEY / TERMUX_CODER_OPENAI_BASE_URL | OpenAI |
+| OPENROUTER_API_KEY / OPENROUTER_BASE_URL | TERMUX_CODER_OPENROUTER_API_KEY / TERMUX_CODER_OPENROUTER_BASE_URL | OpenRouter |
+| GROQ_API_KEY / GROQ_BASE_URL | TERMUX_CODER_GROQ_API_KEY / TERMUX_CODER_GROQ_BASE_URL | Groq |
+| TOGETHER_API_KEY / TOGETHER_BASE_URL | TERMUX_CODER_TOGETHER_API_KEY / TERMUX_CODER_TOGETHER_BASE_URL | Together |
 | MODEL | TERMUX_CODER_MODEL | gpt-4o-mini |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
@@ -52,6 +56,27 @@
 | TERMUX_CODER_SEARCH_CIRCUIT_COOLDOWN | — | 60 seconds |
 | TERMUX_CODER_SEARCH_CACHE_TTL | — | 30 seconds |
 | TERMUX_CODER_SEARCH_CACHE_ENTRIES | — | 32 |
+
+### اختيار مزود النموذج
+
+يدعم الوكيل مزودين متوافقين مع OpenAI API: NVIDIA NIM وOpenAI وOpenRouter وGroq وTogether. الوضع الافتراضي `PROVIDER=auto` يختار أول مزود يملك مفتاحًا مهيأً حسب الترتيب: NVIDIA ثم OpenAI ثم OpenRouter ثم Groq ثم Together. لا يحاول النظام استنتاج المزود من شكل المفتاح السري؛ يعتمد على اسم متغير البيئة الصريح لتجنب اختيار خاطئ أو كشف بيانات حساسة.
+
+يمكن فرض مزود محدد:
+
+```sh
+export TERMUX_CODER_PROVIDER=groq
+export GROQ_API_KEY='your-groq-key'
+export GROQ_BASE_URL='https://api.groq.com/openai/v1'
+```
+
+أو استخدام NVIDIA NIM:
+
+```sh
+export TERMUX_CODER_PROVIDER=nvidia
+export NVIDIA_API_KEY='your-nvidia-key'
+```
+
+للتوافق مع الإعداد القديم، يبقى `OPENAI_API_KEY` و`OPENAI_BASE_URL` مدعومين. أولوية المتغير المسبوق `TERMUX_CODER_` أعلى من المتغير العام. لا تُطبع قيم المفاتيح في CLI أو AuditLog؛ تظهر رسائل الأخطاء أسماء المتغيرات المطلوبة فقط.
 
 يُرسل `TERMUX_CODER_SINGLE_TOOL_CALLS=1` قيمة `parallel_tool_calls=false` لمزود OpenAI-compatible، وهو الوضع المناسب لنماذج Llama المحلية التي لا تقبل عدة tool calls في الاستجابة نفسها. يمكن ضبطه إلى `0` فقط مع مزود يدعم الاستدعاءات المتوازية.
 

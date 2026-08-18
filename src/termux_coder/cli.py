@@ -120,14 +120,20 @@ def build_registry() -> ToolRegistry:
 def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
     import os
     from .providers.router import ModelRouter
+    from .providers.selection import select_provider
 
     fast_model = os.environ.get("FAST_MODEL", "meta/llama-3.1-8b-instruct")
     smart_model = settings.model
+    selected = select_provider(
+        settings.provider,
+        legacy_api_key=settings.openai_api_key,
+        legacy_base_url=settings.openai_base_url,
+    )
     fast_provider = OpenAICompatProvider(
-        settings.openai_api_key, settings.openai_base_url, fast_model
+        selected.api_key, selected.base_url, fast_model
     )
     smart_provider = OpenAICompatProvider(
-        settings.openai_api_key, settings.openai_base_url, smart_model
+        selected.api_key, selected.base_url, smart_model
     )
     router = ModelRouter(
         fast_provider,

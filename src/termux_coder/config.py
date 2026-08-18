@@ -25,6 +25,9 @@ class Settings:
     openai_base_url: str = field(
         default_factory=lambda: _env("OPENAI_BASE_URL", "https://api.openai.com/v1")
     )
+    # auto selects the first configured provider; explicit names include
+    # nvidia, openai, openrouter, groq, and together.
+    provider: str = field(default_factory=lambda: _env("PROVIDER", "auto").lower())
     model: str = field(default_factory=lambda: _env("MODEL", "gpt-4o-mini"))
 
     # ASK | READONLY | GRANULAR | AUTO (AUTO غير افتراضي ولا يُنصح به على الهاتف)
