@@ -196,7 +196,7 @@ def _format_web_results(raw: str | list) -> str:
     return str(raw)[:500]
 
 
-def _format_final_answer(agent, turn_result) -> str:
+def _format_final_answer(agent, turn_result, *, show_thinking: bool = False) -> str:
     """Return the answer text to print after a completed orchestrated turn.
 
     Invariants
@@ -245,30 +245,32 @@ def _format_final_answer(agent, turn_result) -> str:
     # ── Format successful read/search outputs ─────────────────────────────
     read_outputs: list[str] = []
     for tr in successful:
+        label = f"[{tr.tool}]\n" if show_thinking else ""
         if tr.tool in ("list_dir", "search_text"):
             data = tr.data if isinstance(tr.data, str) else str(tr.data)
-            read_outputs.append(f"[{tr.tool}]\n{data.strip()}")
+            read_outputs.append(f"{label}{data.strip()}")
         elif tr.tool == "read_file":
             data = tr.data if isinstance(tr.data, str) else str(tr.data)
             file_lines = data.splitlines()
             if len(file_lines) > _READ_FILE_INLINE_LINES:
                 read_outputs.append(
-                    f"[read_file] ({len(file_lines)} lines — showing first "
+                    f"{label}({len(file_lines)} lines — showing first "
                     f"{_READ_FILE_INLINE_LINES})\n"
                     + "\n".join(file_lines[:_READ_FILE_INLINE_LINES])
                 )
             else:
-                read_outputs.append(f"[read_file]\n{data.strip()}")
+                read_outputs.append(f"{label}{data.strip()}")
         elif tr.tool in ("web_search", "fetch_page"):
             formatted = _format_web_results(tr.data)
-            read_outputs.append(f"[{tr.tool}]\n{formatted}")
+            read_outputs.append(f"{label}{formatted}")
 
     if read_outputs:
-        # Always surface the tool data.
-        # Append the model text only when it looks substantive — i.e., it
-        # is not blank and is longer than a short transition sentence.
-        # We do NOT inspect keywords; length + presence of tool data is enough.
+        # Always surface actual tool data. In quiet mode this is the only
+        # block shown, preventing a duplicate model restatement. Diagnostic
+        # mode may append substantive model context after the data.
         data_block = "\n\n".join(read_outputs)
+        if not show_thinking:
+            return data_block
         if final_text and len(final_text) > 60:
             return data_block + "\n\n" + final_text
         return data_block
@@ -363,7 +365,9 @@ async def cli_main(settings: Settings) -> None:
             turn_result = getattr(agent, "last_turn_result", None)
             turn_state = getattr(getattr(turn_result, "state", None), "value", None)
             if turn_result is None or turn_state == "idle":
-                final_text = _format_final_answer(agent, turn_result)
+                final_text = _format_final_answer(
+                    agent, turn_result, show_thinking=settings.show_thinking
+                )
                 if final_text:
                     print()
                     logo.ctrl("answer")

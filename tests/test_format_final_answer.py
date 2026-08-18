@@ -54,7 +54,7 @@ def test_list_dir_shows_actual_file_names() -> None:
     )
     assert "main.py" in result
     assert "README.md" in result
-    assert "[list_dir]" in result
+    assert "[list_dir]" not in result
 
 
 # ── 2. read_file short file ────────────────────────────────────────────────
@@ -66,7 +66,7 @@ def test_read_file_shows_content_when_short() -> None:
         _tr(tool_results=[_ok("read_file", content)]),
     )
     assert "def greet" in result
-    assert "[read_file]" in result
+    assert "[read_file]" not in result
 
 
 # ── 3. read_file long file ─────────────────────────────────────────────────
@@ -78,7 +78,7 @@ def test_read_file_long_shows_header_and_first_lines() -> None:
         _FakeAgent([]),
         _tr(tool_results=[_ok("read_file", content)]),
     )
-    assert "[read_file]" in result
+    assert "[read_file]" not in result
     assert "50 lines" in result
     # first line must appear
     assert "line0" in result
@@ -96,7 +96,7 @@ def test_search_text_shows_matching_paths() -> None:
     )
     assert "main.py" in result
     assert "helpers.py" in result
-    assert "[search_text]" in result
+    assert "[search_text]" not in result
 
 
 # ── 5. web_search shows titles/URLs/snippets ───────────────────────────────
@@ -133,10 +133,29 @@ def test_web_search_shows_title_url_snippet_not_raw_json() -> None:
     assert "Result 0" in result
     assert "https://example.com/page0" in result
     assert "snippet 0" in result
+    # Quiet mode hides the diagnostic tool label.
+    assert "[web_search]" not in result
     # The entire raw JSON blob must NOT be echoed verbatim
     assert '"search_time_ms"' not in result
     assert '"untrusted"' not in result
-    assert "[web_search]" in result
+
+
+def test_show_thinking_keeps_tool_label_and_model_context() -> None:
+    listing = "file main.py"
+    result = _format_final_answer(
+        _FakeAgent([]),
+        _tr(
+            final_text=(
+                "The workspace contains one source file named main.py. "
+                "No other source files were found in this directory."
+            ),
+            tool_results=[_ok("list_dir", listing)],
+        ),
+        show_thinking=True,
+    )
+    assert "[list_dir]" in result
+    assert "main.py" in result
+    assert "one source file" in result
 
 
 def test_format_web_results_from_json_string() -> None:
@@ -237,7 +256,17 @@ def test_substantive_model_text_appended_after_tool_data() -> None:
     )
     assert "main.py" in result
     assert "utils.py" in result
-    assert "entry point" in result
+    assert "entry point" not in result
+
+    diagnostic = _format_final_answer(
+        _FakeAgent([]),
+        _tr(
+            final_text=long_explanation,
+            tool_results=[_ok("list_dir", listing)],
+        ),
+        show_thinking=True,
+    )
+    assert "entry point" in diagnostic
 
 
 # ── legacy path: turn_result is None ──────────────────────────────────────
