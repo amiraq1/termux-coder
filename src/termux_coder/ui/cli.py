@@ -15,12 +15,14 @@ class CliUI(AgentUI):
     The CLI shows only durable status updates, approvals, and the final answer.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, show_thinking: bool = False) -> None:
+        self.show_thinking = show_thinking
         self._token_buffer: list[str] = []
 
     def thinking(self):
-        # Do not expose model reasoning or a spinner in the mobile CLI.
-        return nullcontext()
+        # The optional spinner is only a compact progress indicator. Raw
+        # reasoning and streamed tool-call text are never printed.
+        return logo.Thinking() if self.show_thinking else nullcontext()
 
     async def on_token(self, text: str) -> None:
         # Keep streamed content available for diagnostics without printing

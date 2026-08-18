@@ -5,6 +5,8 @@ from contextlib import redirect_stdout
 from io import StringIO
 
 from termux_coder.cli import _friendly_reply
+from termux_coder.config import Settings
+from termux_coder.__main__ import _apply_show_thinking_override
 from termux_coder.ui.cli import CliUI
 
 
@@ -17,6 +19,25 @@ def test_cli_ui_hides_thinking_and_streamed_tokens() -> None:
         asyncio.run(ui.on_event("assistant_done"))
         asyncio.run(ui.on_event("turn_end"))
     assert output.getvalue() == ""
+
+
+def test_cli_ui_show_thinking_enables_spinner_only() -> None:
+    from termux_coder import logo
+
+    assert isinstance(CliUI(show_thinking=True).thinking(), logo.Thinking)
+    assert not isinstance(CliUI(show_thinking=False).thinking(), logo.Thinking)
+
+
+def test_show_thinking_reads_environment(monkeypatch) -> None:
+    monkeypatch.setenv("TERMUX_CODER_SHOW_THINKING", "1")
+    assert Settings().show_thinking is True
+
+
+def test_cli_value_overrides_environment(monkeypatch) -> None:
+    monkeypatch.setenv("TERMUX_CODER_SHOW_THINKING", "1")
+    settings = Settings()
+    assert _apply_show_thinking_override(settings, False).show_thinking is False
+    assert _apply_show_thinking_override(settings, None).show_thinking is False
 
 
 def test_cli_ui_shows_compact_tool_status_without_arguments_or_result_body() -> None:

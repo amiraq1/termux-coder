@@ -29,6 +29,8 @@ class Settings:
 
     # ASK | READONLY | GRANULAR | AUTO (AUTO غير افتراضي ولا يُنصح به على الهاتف)
     security_mode: str = field(default_factory=lambda: _env("SECURITY", "ASK"))
+    # Show only compact progress indicators; never expose raw model reasoning.
+    show_thinking: bool = field(default_factory=lambda: _env("SHOW_THINKING", "0") == "1")
 
     command_timeout: int = field(default_factory=lambda: int(_env("COMMAND_TIMEOUT", "120")))
     max_tool_rounds: int = 20

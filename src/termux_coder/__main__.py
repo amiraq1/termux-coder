@@ -6,12 +6,33 @@ import sys
 from pathlib import Path
 
 
+def _apply_show_thinking_override(settings, cli_value: bool | None):
+    """Apply an explicit CLI value while preserving the environment default."""
+    if cli_value is not None:
+        settings.show_thinking = cli_value
+    return settings
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="termux-coder")
     parser.add_argument("command", nargs="?", choices=["run", "doctor"], default="run")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--tui", action="store_true", help="use the Textual UI instead of the default CLI")
     parser.add_argument("--cli", action="store_true", help=argparse.SUPPRESS)
+    thinking_group = parser.add_mutually_exclusive_group()
+    thinking_group.add_argument(
+        "--show-thinking",
+        dest="show_thinking",
+        action="store_true",
+        default=None,
+        help="show compact progress indicators and the loading spinner",
+    )
+    thinking_group.add_argument(
+        "--hide-thinking",
+        dest="show_thinking",
+        action="store_false",
+        help="hide progress indicators and the loading spinner (default)",
+    )
     parser.add_argument("--version", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output for doctor")
     parser.add_argument("--verbose", action="store_true", help="show doctor check details")
@@ -21,6 +42,7 @@ def main() -> None:
     from .config import Settings
 
     settings = Settings(workspace=Path(args.workspace))
+    _apply_show_thinking_override(settings, args.show_thinking)
 
     if args.version:
         from . import __version__
