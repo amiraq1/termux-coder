@@ -20,7 +20,7 @@ def test_prompt_input_routes_context_actions_shortcuts():
     )
     prompt = PromptInput(owner)
 
-    toggle_event = _Event("ctrl+space")
+    toggle_event = _Event("ctrl+m")
     prompt.on_key(toggle_event)
     copy_event = _Event("ctrl+shift+c")
     prompt.on_key(copy_event)

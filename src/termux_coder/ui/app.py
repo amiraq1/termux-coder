@@ -209,7 +209,7 @@ class PromptInput(Input):
         elif event.key == "ctrl+end":
             event.stop()
             self.termux_app.action_last_message()
-        elif event.key == "ctrl+space":
+        elif event.key == "ctrl+m":
             event.stop()
             self.termux_app.action_toggle_context_actions()
         elif event.key == "ctrl+shift+c":
@@ -557,7 +557,7 @@ class TermuxCoderApp(App):
         Binding("ctrl+down", "next_message", "next message", show=False),
         Binding("ctrl+home", "first_message", "first message", show=False),
         Binding("ctrl+end", "last_message", "last message", show=False),
-        Binding("ctrl+space", "toggle_context_actions", "actions", show=False),
+        Binding("ctrl+m", "toggle_context_actions", "actions", show=False),
         Binding("ctrl+shift+c", "copy_last_answer", "copy answer", show=False),
     ]
     CSS = """
