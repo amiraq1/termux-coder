@@ -648,3 +648,32 @@ class TestMockProvider:
             assert provider.calls[0]["messages_count"] == 1
             assert provider.calls[1]["tools_count"] == 1
         asyncio.run(_run())
+
+
+
+def test_suppressed_empty_tool_call_retries_without_tools():
+    """A suppressed hallucinated tool call must not produce a blank turn."""
+    async def _run():
+        async def ignored_tool(args, ctx):
+            raise AssertionError("suppressed tool must not execute")
+
+        orch, audit, provider = build_orchestrator(
+            responses=[
+                MockResponse.with_tool("bad-1", "read_file", {"path": "iraq"}),
+                MockResponse.text("2"),
+            ],
+            mode="AUTO",
+            tools={"read_file": ignored_tool},
+        )
+        messages = [{"role": "user", "content": "1+1"}]
+        result = await orch.run_turn(messages)
+
+        assert result.state == TurnState.IDLE
+        assert result.final_text == "2"
+        assert provider.calls[0]["tools_count"] == 1
+        assert provider.calls[1]["tools_count"] == 0
+        assert audit.has("tool_suppressed")
+        assert audit.has("tool_suppressed_retry")
+        assert [m["role"] for m in messages] == ["user", "assistant"]
+
+    asyncio.run(_run())

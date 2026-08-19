@@ -949,6 +949,7 @@ class AgentOrchestrator:
 
         final_text = ""
         rounds_used = 0
+        text_only_retry_used = False
 
         try:
             for round_idx in range(self.max_rounds):
@@ -975,12 +976,23 @@ class AgentOrchestrator:
                 self._transition(TurnState.PLANNING)
                 await self._on_event("round_start", round=round_idx)
 
-                schemas = self.registry.schemas()
+                schemas = [] if text_only_retry_used else self.registry.schemas()
                 model_messages = (
                     self._message_preparer(messages)
                     if self._message_preparer is not None
                     else messages
                 )
+                if text_only_retry_used:
+                    model_messages = [
+                        *model_messages,
+                        {
+                            "role": "system",
+                            "content": (
+                                "Answer the current user request directly. "
+                                "Do not call tools. If clarification is needed, ask one concise question."
+                            ),
+                        },
+                    ]
                 response = await self.provider.chat_stream(
                     model_messages, schemas, on_token
                 )
@@ -1018,8 +1030,29 @@ class AgentOrchestrator:
                             round_index=round_idx,
                         )
 
+                suppressed_only = bool(
+                    suppressed_calls
+                    and not provider_resp.tool_calls
+                    and not str(provider_resp.assistant_message.get("content") or "").strip()
+                )
+                if suppressed_only and not text_only_retry_used:
+                    text_only_retry_used = True
+                    self.audit.log(
+                        "tool_suppressed_retry",
+                        turn_id=self._turn_id,
+                        reason="retrying once without tools to obtain a direct answer",
+                    )
+                    await self._on_event(
+                        "tool_suppressed_retry",
+                        reason="retrying once without tools to obtain a direct answer",
+                    )
+                    continue
+
                 # ── حفظ رسالة المساعد أولاً (ضروري للـ API) ──
-                self._append_message(messages, provider_resp.assistant_message)
+                # لا نحفظ رسالة مساعد فارغة ناتجة فقط عن tool call مكبوت؛
+                # فهي ليست إجابة صالحة وقد تلوث تاريخ المحادثة.
+                if not suppressed_only:
+                    self._append_message(messages, provider_resp.assistant_message)
                 await self._on_event("assistant_done")
 
                 if not provider_resp.has_tool_calls:
