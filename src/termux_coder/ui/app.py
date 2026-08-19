@@ -572,7 +572,7 @@ class TermuxCoderApp(App):
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
-    Input, Input:focus { height: 3; margin: 0 1; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
+    Input, Input:focus { height: 3; margin: 0 1; padding: 0 1; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #2b2b2b; color: #f2f2f2; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
     """
