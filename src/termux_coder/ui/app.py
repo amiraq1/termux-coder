@@ -209,6 +209,12 @@ class PromptInput(Input):
         elif event.key == "ctrl+end":
             event.stop()
             self.termux_app.action_last_message()
+        elif event.key == "ctrl+space":
+            event.stop()
+            self.termux_app.action_toggle_context_actions()
+        elif event.key == "ctrl+shift+c":
+            event.stop()
+            self.termux_app.action_copy_last_answer()
 
 
 class TextualUI(AgentUI):
