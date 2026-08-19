@@ -193,14 +193,8 @@ class PromptInput(Input):
         super().__init__(*args, **kwargs)
         self.termux_app = app
 
-    def on_click(self, event) -> None:
-        self.focus()
-
     def on_key(self, event) -> None:
-        if event.key == "escape":
-            event.stop()
-            self.focus()
-        elif event.key == "ctrl+a":
+        if event.key == "ctrl+a":
             event.stop()
             self.termux_app.action_open_provider_picker()
         elif event.key == "ctrl+up":
@@ -585,8 +579,7 @@ class TermuxCoderApp(App):
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
-    #prompt { min-height: 3; height: 3; margin: 0 1; }
-    Input, Input:focus { min-height: 3; height: 3; margin: 0; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
+    Input, Input:focus { height: 3; margin: 0 1; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
     """
