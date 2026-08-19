@@ -1,0 +1,7 @@
+Visual validation notes
+
+The overview chart renders correctly at 2080x1440. It contains a readable memory-over-time line chart with current and peak traced memory, and a readable ten-batch estimated token-throughput bar chart.
+
+The checkpoint chart renders correctly at 1760x880. Its three bars are legible and compare baseline, stream_batch_8, and final peak traced memory.
+
+No clipping, overlapping labels, or missing axes were observed in either chart.

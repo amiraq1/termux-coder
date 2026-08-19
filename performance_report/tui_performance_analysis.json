@@ -1,0 +1,29 @@
+{
+  "chart_overview": "/home/ubuntu/termux-coder/performance_report/tui_performance_overview.png",
+  "chart_checkpoints": "/home/ubuntu/termux-coder/performance_report/tui_peak_memory_checkpoints.png",
+  "estimated_token_throughput_min": 951.55,
+  "estimated_token_throughput_max": 7446.94,
+  "estimated_token_throughput_mean": 2657.21,
+  "metadata": {
+    "terminal_size": [
+      122,
+      39
+    ],
+    "token_chunks": 25000,
+    "estimated_tokens_per_chunk": 11,
+    "tool_events": 1000,
+    "assistant_messages": 600,
+    "virtual_window_limit": 160,
+    "virtual_render_batch": 24,
+    "measurement": "tracemalloc plus monotonic wall-clock time"
+  },
+  "summary": {
+    "total_elapsed_s": 193.928944,
+    "estimated_tokens": 275000,
+    "current_memory_mb": 86.422734,
+    "peak_memory_mb": 115.886029,
+    "message_records": 600,
+    "rendered_widgets": 13,
+    "feed_children": 1014
+  }
+}

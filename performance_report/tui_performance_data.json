@@ -1,0 +1,154 @@
+{
+  "metadata": {
+    "terminal_size": [
+      122,
+      39
+    ],
+    "token_chunks": 25000,
+    "estimated_tokens_per_chunk": 11,
+    "tool_events": 1000,
+    "assistant_messages": 600,
+    "virtual_window_limit": 160,
+    "virtual_render_batch": 24,
+    "measurement": "tracemalloc plus monotonic wall-clock time"
+  },
+  "summary": {
+    "total_elapsed_s": 193.928944,
+    "estimated_tokens": 275000,
+    "current_memory_mb": 86.422734,
+    "peak_memory_mb": 115.886029,
+    "message_records": 600,
+    "rendered_widgets": 13,
+    "feed_children": 1014
+  },
+  "samples": [
+    {
+      "phase": "baseline",
+      "elapsed_s": 0.406169,
+      "estimated_tokens": 0,
+      "current_memory_mb": 2.10904,
+      "peak_memory_mb": 2.879951,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_1",
+      "elapsed_s": 4.09896,
+      "estimated_tokens": 27500,
+      "current_memory_mb": 7.775194,
+      "peak_memory_mb": 11.663163,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_2",
+      "elapsed_s": 9.417427,
+      "estimated_tokens": 55000,
+      "current_memory_mb": 13.367455,
+      "peak_memory_mb": 21.083485,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_3",
+      "elapsed_s": 17.316592,
+      "estimated_tokens": 82500,
+      "current_memory_mb": 19.046386,
+      "peak_memory_mb": 33.505224,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_4",
+      "elapsed_s": 28.748047,
+      "estimated_tokens": 110000,
+      "current_memory_mb": 24.415999,
+      "peak_memory_mb": 45.476362,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_5",
+      "elapsed_s": 42.820233,
+      "estimated_tokens": 137500,
+      "current_memory_mb": 28.650708,
+      "peak_memory_mb": 55.841114,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_6",
+      "elapsed_s": 60.887436,
+      "estimated_tokens": 165000,
+      "current_memory_mb": 34.299086,
+      "peak_memory_mb": 67.515831,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_7",
+      "elapsed_s": 81.082882,
+      "estimated_tokens": 192500,
+      "current_memory_mb": 39.667706,
+      "peak_memory_mb": 79.815297,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_8",
+      "elapsed_s": 103.571046,
+      "estimated_tokens": 220000,
+      "current_memory_mb": 46.176984,
+      "peak_memory_mb": 92.808962,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_9",
+      "elapsed_s": 129.637081,
+      "estimated_tokens": 247500,
+      "current_memory_mb": 51.413083,
+      "peak_memory_mb": 104.483782,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "stream_batch_10",
+      "elapsed_s": 158.537183,
+      "estimated_tokens": 275000,
+      "current_memory_mb": 56.427134,
+      "peak_memory_mb": 115.886029,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "after_tool_events",
+      "elapsed_s": 165.410968,
+      "estimated_tokens": 275000,
+      "current_memory_mb": 81.29427,
+      "peak_memory_mb": 115.886029,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "after_assistant_messages",
+      "elapsed_s": 189.849471,
+      "estimated_tokens": 275000,
+      "current_memory_mb": 90.91147,
+      "peak_memory_mb": 115.886029,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "after_first_message_navigation",
+      "elapsed_s": 191.715113,
+      "estimated_tokens": 275000,
+      "current_memory_mb": 93.773657,
+      "peak_memory_mb": 115.886029,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "after_last_message_navigation",
+      "elapsed_s": 193.452917,
+      "estimated_tokens": 275000,
+      "current_memory_mb": 85.926708,
+      "peak_memory_mb": 115.886029,
+      "tracemalloc_active": true
+    },
+    {
+      "phase": "final",
+      "elapsed_s": 193.928892,
+      "estimated_tokens": 275000,
+      "current_memory_mb": 86.422596,
+      "peak_memory_mb": 115.886029,
+      "tracemalloc_active": true
+    }
+  ]
+}
