@@ -60,7 +60,7 @@ class TurnState(str, Enum):
 _ALLOWED_TRANSITIONS: dict[TurnState, set[TurnState]] = {
     TurnState.IDLE:              {TurnState.PLANNING},
     TurnState.RESEARCHING:       {TurnState.RESEARCHING, TurnState.PLANNING, TurnState.AWAITING_APPROVAL,
-                                  TurnState.CANCELLED, TurnState.FAILED},
+                                  TurnState.EXECUTING, TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
     TurnState.PLANNING:          {TurnState.PLANNING, TurnState.RESEARCHING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
     TurnState.AWAITING_APPROVAL: {TurnState.RESEARCHING, TurnState.EXECUTING, TurnState.CANCELLED, TurnState.FAILED},
@@ -144,43 +144,44 @@ MUTATION_TOOLS = frozenset({
     "delete_file",
 })
 
+import re
+
 WORKSPACE_TOOLS = frozenset({
     "read_file",
     "list_dir",
     "search_text",
     "repo_map",
-    "git_status",
-    "git_diff",
+    "lsp_diagnostics",
 })
 
-WORKSPACE_INTENT_MARKERS = (
-    "file",
-    "files",
-    "folder",
-    "directory",
-    "workspace",
-    "repository",
-    "repo",
-    "code",
-    "path",
-    "read",
-    "open",
-    "list",
-    "search",
-    "find",
-    "inspect",
-    "project",
-    "source",
-    "map",
-    "مجلد",
-    "ملف",
-    "مشروع",
-    "مستودع",
-    "كود",
-    "مسار",
-    "اقرأ",
-    "اعرض",
-    "ابحث",
+WORKSPACE_INTENT_PATTERN = re.compile(
+    r"\b(file|files|folder|directory|dir|workspace|repository|repo|code|path|read|open|list|search|find|inspect|project|source|map|diagnostics|مجلد|ملف|مشروع|مستودع|كود|مسار|اقرأ|اعرض|ابحث)\b",
+    re.IGNORECASE
+)
+
+GIT_TOOLS = frozenset({
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_init",
+    "git_checkpoint",
+    "git_commit",
+    "git_restore",
+})
+
+GIT_INTENT_PATTERN = re.compile(
+    r"\b(git|commit|status|diff|log|branch|checkout|restore|revert|push|pull|init)\b",
+    re.IGNORECASE
+)
+
+NETWORK_TOOLS = frozenset({
+    "web_search",
+    "fetch_page",
+})
+
+NETWORK_INTENT_PATTERN = re.compile(
+    r"\b(search|web|fetch|url|http|https|docs|documentation|api|توثيق|وثائق|ابحث)\b",
+    re.IGNORECASE
 )
 
 
@@ -431,39 +432,49 @@ class AgentOrchestrator:
             return value in {".", "..", "./", "../"}
         return "/" in value or "\\" in value or "." in value.rsplit("/", 1)[-1]
 
-    def _workspace_call_is_scoped(self, call: ToolCall, user_text: str) -> bool:
-        """Require an explicit workspace intent before file tools may run."""
-        if call.name not in WORKSPACE_TOOLS:
-            return True
-        lowered = user_text.casefold()
-        if any(marker in lowered for marker in WORKSPACE_INTENT_MARKERS):
-            return True
-        path = str(call.arguments.get("path", "")).strip()
-        # Empty paths use the tool's documented workspace default (usually ".").
-        # Only non-empty, unscoped values such as a bare conversational word
-        # should be blocked here.
-        if not path:
-            return True
-        return self._path_looks_explicit(path)
+    def _check_tool_intent(self, call: ToolCall, user_text: str) -> tuple[bool, str]:
+        if call.name in WORKSPACE_TOOLS:
+            if WORKSPACE_INTENT_PATTERN.search(user_text):
+                return True, ""
+            # If user_text itself looks like an explicit path, allow
+            if self._path_looks_explicit(user_text.strip()):
+                return True, ""
+            return False, f"workspace tool {call.name} requires explicit file, path, or read/search intent"
 
-    def _suppress_unscoped_workspace_calls(
+        if call.name in GIT_TOOLS:
+            if GIT_INTENT_PATTERN.search(user_text):
+                return True, ""
+            return False, f"git tool {call.name} requires explicit git intent"
+
+        if call.name in NETWORK_TOOLS:
+            if NETWORK_INTENT_PATTERN.search(user_text):
+                return True, ""
+            # If user_text contains a URL, allow
+            if "http://" in user_text or "https://" in user_text:
+                return True, ""
+            return False, f"network tool {call.name} requires explicit search, fetch, or url intent"
+
+        return True, ""
+
+    def _enforce_intent_gate(
         self,
         provider_response: ProviderResponse,
         user_text: str,
-    ) -> tuple[ProviderResponse, list[ToolCall]]:
-        suppressed = [
-            call
-            for call in provider_response.tool_calls
-            if not self._workspace_call_is_scoped(call, user_text)
-        ]
+    ) -> tuple[ProviderResponse, list[tuple[ToolCall, str]]]:
+        suppressed = []
+        allowed_calls = []
+
+        for call in provider_response.tool_calls:
+            allowed, reason = self._check_tool_intent(call, user_text)
+            if allowed:
+                allowed_calls.append(call)
+            else:
+                suppressed.append((call, reason))
+
         if not suppressed:
             return provider_response, []
 
-        suppressed_ids = {call.call_id for call in suppressed}
-        allowed_calls = [
-            call for call in provider_response.tool_calls
-            if call.call_id not in suppressed_ids
-        ]
+        suppressed_ids = {call.call_id for call, _ in suppressed}
         assistant_message = dict(provider_response.assistant_message)
         raw_calls = assistant_message.get("tool_calls")
         if raw_calls:
@@ -482,7 +493,7 @@ class AgentOrchestrator:
             finish_reason="tool_calls" if allowed_calls else "stop",
             usage=provider_response.usage,
             provider_id=provider_response.provider_id,
-        ), suppressed
+        ), [item for item in suppressed]
 
     # ── بناء ToolCall من مخرجات النموذج الخام ────────────────
 
@@ -976,22 +987,22 @@ class AgentOrchestrator:
 
                 # تحويل الاستجابة الخام إلى ProviderResponse
                 provider_resp = self._adapt_response(response, self._turn_id)
-                provider_resp, suppressed_calls = self._suppress_unscoped_workspace_calls(
+                provider_resp, suppressed_calls = self._enforce_intent_gate(
                     provider_resp,
                     user_text,
                 )
-                for suppressed_call in suppressed_calls:
+                for suppressed_call, reason in suppressed_calls:
                     self.audit.log(
                         "tool_suppressed",
                         turn_id=self._turn_id,
                         call_id=suppressed_call.call_id,
                         tool=suppressed_call.name,
-                        reason="workspace tool requires explicit file or repository intent",
+                        reason=reason,
                     )
                     await self._on_event(
                         "tool_suppressed",
                         tool=suppressed_call.name,
-                        reason="workspace tool requires explicit file or repository intent",
+                        reason=reason,
                     )
 
                 if self._trace_store is not None:
