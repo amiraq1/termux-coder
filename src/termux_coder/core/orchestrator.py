@@ -39,6 +39,7 @@ from .recovery import recover_tool_calls, sanitize_tool_calls
 from ..tools.preview import PatchPreviewService, PreviewError
 from .trace import TraceStore
 from .verification import VerificationRunner, VerificationStatus
+from .impact import ImpactAnalyzer, extract_target
 
 
 # ══════════════════════════════════════════════════════════════
@@ -221,6 +222,7 @@ class AgentOrchestrator:
         preview_service: PatchPreviewService | None = None,
         verification_runner: VerificationRunner | None = None,
         trace_store: TraceStore | None = None,
+        impact_analyzer: ImpactAnalyzer | None = None,
     ):
         self.provider       = provider
         self.registry       = registry
@@ -236,6 +238,7 @@ class AgentOrchestrator:
         self._preview_service = preview_service
         self._verification_runner = verification_runner
         self._trace_store = trace_store
+        self._impact_analyzer = impact_analyzer
         self._trace_step = 0
         self._trace_steps: dict[str, int] = {}
 
@@ -750,6 +753,68 @@ class AgentOrchestrator:
             f"{result.stderr[:1000]}"
         )
 
+    async def _run_impact_analysis(
+        self,
+        user_text: str,
+    ) -> tuple[bool, str | None]:
+        """Analyze an explicit coding target before any preview or mutation."""
+        settings = getattr(self.ctx, "settings", None)
+        if not getattr(settings, "analyzing_enabled", False) or self._impact_analyzer is None:
+            return True, None
+
+        target = extract_target(user_text)
+        if target is None:
+            self.audit.log(
+                "impact_analysis_skipped",
+                turn_id=self._turn_id,
+                reason="no_explicit_source_target",
+            )
+            return True, None
+
+        path, symbol = target
+        self._transition(TurnState.ANALYZING)
+        await self._on_event(
+            "agent_state",
+            state=TurnState.ANALYZING.value,
+            target=f"{path}::{symbol}" if symbol else path,
+        )
+        try:
+            report = await asyncio.to_thread(self._impact_analyzer.analyze, path, symbol)
+        except (OSError, ValueError) as exc:
+            reason = f"impact analysis failed: {exc}"
+            self.audit.log(
+                "impact_analysis_failed",
+                turn_id=self._turn_id,
+                path=path,
+                symbol=symbol,
+                reason=str(exc),
+            )
+            self._transition(TurnState.IDLE)
+            await self._on_event("halt", reason=reason, phase=TurnState.ANALYZING.value)
+            return False, reason
+
+        report_data = report.to_dict()
+        self.audit.log("impact_analysis", turn_id=self._turn_id, **report_data)
+        await self._on_event("impact_analysis", report=report_data)
+        if report.unknown_dynamic_references:
+            reason = (
+                "impact analysis halted: dynamic references were detected; "
+                "scope requires explicit user review"
+            )
+            self.audit.log(
+                "halt",
+                turn_id=self._turn_id,
+                phase=TurnState.ANALYZING.value,
+                reason=reason,
+                target=report.target,
+            )
+            self._transition(TurnState.IDLE)
+            await self._on_event("halt", reason=reason, phase=TurnState.ANALYZING.value)
+            return False, reason
+
+        self._transition(TurnState.PLANNING)
+        return True, None
+
     async def _run_research_gate(
         self,
         user_text: str,
@@ -933,6 +998,21 @@ class AgentOrchestrator:
         self._edit_requested = ModelRouter.looks_like_edit(user_text)
         if self._trace_store is not None:
             self._trace_store.turn_start(self._turn_id, user_text)
+        impact_ok, impact_error = await self._run_impact_analysis(user_text)
+        if not impact_ok:
+            if self._trace_store is not None:
+                self._trace_store.turn_end(
+                    self._turn_id,
+                    state=self._state.value,
+                    rounds=0,
+                    error=impact_error,
+                )
+            return TurnResult(
+                state=self._state,
+                error=impact_error,
+                tool_results=self._tool_results,
+                rounds_used=0,
+            )
         research_ok, research_error = await self._run_research_gate(
             user_text,
             messages,

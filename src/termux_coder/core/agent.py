@@ -21,6 +21,7 @@ from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
 from .capabilities import CapabilityRegistry, WebSearchCapabilityAdapter
 from .orchestrator import AgentOrchestrator, TurnState
+from .impact import ImpactAnalyzer
 from .orchestrator_adapter import RouterProviderAdapter
 from .verification import VerificationRunner
 from .trace import TraceStore
@@ -54,6 +55,11 @@ class Agent:
         self.registry = registry
         self.ui = ui
         self.jail = WorkspaceJail(settings.workspace)
+        self.impact_analyzer = (
+            ImpactAnalyzer(self.jail.root)
+            if getattr(settings, "analyzing_enabled", False)
+            else None
+        )
         self.state = SessionState()
         self.audit = AuditLog(settings.state_dir / "audit.jsonl")
         self.policy = CommandPolicy(settings.security_mode)
@@ -228,6 +234,7 @@ class Agent:
                     if self.settings.verification_enabled else None
                 ),
                 trace_store=self.trace_store,
+                impact_analyzer=self.impact_analyzer,
             )
 
         try:
