@@ -117,6 +117,11 @@ class Settings:
     execution_trace_enabled: bool = field(
         default_factory=lambda: _env("EXECUTION_TRACE", "1") == "1"
     )
+    # Professional coding workflow is enabled by default; set to 0 for the
+    # legacy general-purpose prompt and behavior.
+    software_engineer_mode: bool = field(
+        default_factory=lambda: _env("SOFTWARE_ENGINEER", "1") == "1"
+    )
     verification_timeout_s: float = field(
         default_factory=lambda: float(_env("VERIFICATION_TIMEOUT", "30"))
     )

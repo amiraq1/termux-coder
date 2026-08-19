@@ -12,3 +12,18 @@ def test_research_answers_must_separate_facts_from_guidance() -> None:
     prompt = build_system_prompt("/tmp/project", "GRANULAR")
     assert "distinguish documented facts from project-specific security guidance" in prompt
     assert "say when the evidence is insufficient instead of guessing" in prompt
+
+
+
+def test_software_engineer_prompt_requires_evidence_and_verification() -> None:
+    prompt = build_system_prompt("/tmp/project", "GRANULAR", software_engineer_mode=True)
+    assert "professional software engineering" in prompt
+    assert "acceptance criteria" in prompt
+    assert "verification has passed" in prompt
+    assert "Never force-push" in prompt
+
+
+def test_general_prompt_can_disable_software_engineer_specialization() -> None:
+    prompt = build_system_prompt("/tmp/project", "GRANULAR", software_engineer_mode=False)
+    assert "general assistant with coding tools" in prompt
+    assert "Professional software-engineering workflow:" not in prompt

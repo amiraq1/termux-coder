@@ -139,6 +139,7 @@ def build_agent(settings: Settings, ui, store=None, resume_id=None) -> Agent:
         fast_model.split("/")[-1],
         smart_model.split("/")[-1],
         ui,
+        software_engineer_mode=getattr(settings, "software_engineer_mode", True),
     )
     return Agent(settings, router, build_registry(), ui, store=store, resume_id=resume_id)
 

@@ -131,3 +131,25 @@ async def test_adapter_keeps_write_tools_for_research_file_output():
     assert {item["function"]["name"] for item in smart.tools} == {
         "read_file", "write_file", "apply_patch"
     }
+
+
+
+def test_software_engineer_mode_prefers_smart_for_code_tasks():
+    r = ModelRouter(None, None, "8b", "70b", ui=None, software_engineer_mode=True)
+    assert r.tier_for_round(0, "review the Python repository and explain the bug", []) == (
+        "smart",
+        "software_engineer_mode",
+    )
+
+
+def test_software_engineer_mode_keeps_general_chat_fast():
+    r = ModelRouter(None, None, "8b", "70b", ui=None, software_engineer_mode=True)
+    assert r.tier_for_round(0, "1+1", []) == ("fast", "exploration")
+
+
+def test_legacy_router_mode_does_not_change_code_keyword_routing():
+    r = ModelRouter(None, None, "8b", "70b", ui=None, software_engineer_mode=False)
+    assert r.tier_for_round(0, "review the Python repository and explain the bug", []) == (
+        "fast",
+        "exploration",
+    )

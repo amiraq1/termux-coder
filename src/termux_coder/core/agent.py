@@ -84,7 +84,11 @@ class Agent:
         self.messages: list[dict] = [
             {
                 "role": "system",
-                "content": build_system_prompt(str(self.jail.root), settings.security_mode),
+                "content": build_system_prompt(
+                    str(self.jail.root),
+                    settings.security_mode,
+                    getattr(settings, "software_engineer_mode", True),
+                ),
             }
         ]
 

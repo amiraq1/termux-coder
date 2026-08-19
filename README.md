@@ -362,3 +362,53 @@ python -m termux_coder doctor --workspace ~/my-project --network --json
 ## التطوير
 
     pytest -q          # حزمة الاختبارات الكاملة
+
+
+## Software Engineer Mode
+
+يعمل الوكيل افتراضيًا بوضع **Professional Software Engineer**. هذا الوضع لا يغيّر نبرة الإجابة فقط؛ بل يضيف قواعد تشغيل واضحة إلى سياق النموذج، منها تحديد نية المهمة والملفات والرموز ومعايير القبول قبل التعديل، استخدام checklist للمهام غير البسيطة، فحص Git قبل التغييرات الواسعة، تنفيذ تحقق ضيق ثم تحقق أوسع بعد التعديل، وعدم اعتبار المهمة ناجحة دون نتيجة أداة أو اختبار يثبتها.
+
+يُفضّل وضع المهام البرمجية التي تتضمن كلمات مثل `repository` أو `file` أو `function` أو `bug` أو `test` أو `Python` على النموذج الذكي تلقائيًا، بينما تبقى المحادثة العامة مثل `hi` و`1+1` على مسار الاستكشاف السريع. هذا التوجيه لا يغيّر سياسة الأمان أو يتجاوز الموافقة أو `WorkspaceJail`.
+
+يمكن تفعيل الوضع صراحةً عبر CLI:
+
+```sh
+python -m termux_coder run \
+  --workspace ~/test-agent \
+  --software-engineer
+```
+
+وللرجوع مؤقتًا إلى السلوك العام:
+
+```sh
+python -m termux_coder run \
+  --workspace ~/test-agent \
+  --general
+```
+
+أو عبر البيئة:
+
+```sh
+export TERMUX_CODER_SOFTWARE_ENGINEER=1
+```
+
+لتعطيله:
+
+```sh
+export TERMUX_CODER_SOFTWARE_ENGINEER=0
+```
+
+ترتيب الضمانات يبقى كما هو:
+
+```text
+intent gate
+  -> read-before-edit
+  -> Safe Preview
+  -> PolicyEngine
+  -> approval when required
+  -> atomic execution
+  -> verification
+  -> rollback on failed verification
+```
+
+وضع Software Engineer لا يمنح النموذج صلاحيات جديدة؛ هو يفرض دورة عمل أكثر انضباطًا ويجعل الدليل الفعلي من الأدوات والاختبارات هو مصدر الحكم النهائي.
