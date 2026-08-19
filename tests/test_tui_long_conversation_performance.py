@@ -38,7 +38,7 @@ def test_tui_handles_1000_message_conversation_and_navigation():
                 feed.move_message(-1)
             navigation_ms = (time.perf_counter() - started) * 1000
 
-            return build_ms, navigation_ms, feed.selected_message, len(feed.message_widgets)
+            return build_ms, navigation_ms, feed.selected_message, len(feed.message_records)
 
     build_ms, navigation_ms, selected, message_count = asyncio.run(scenario())
     assert message_count == 1000

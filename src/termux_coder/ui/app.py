@@ -15,6 +15,7 @@ from .. import theme
 from ..core.agent import Agent
 from .approval import ApprovalScreen
 from .clipboard import copy_text
+from .messages import MessageRecord
 from .base import AgentUI
 from .blocks import (
     ExpandableStatic,
@@ -32,47 +33,55 @@ class ChatFeed(VerticalScroll):
         super().__init__(*args, **kwargs)
         self.owner = owner
         self.follow_output = True
-        self.message_widgets = []
+        self.message_records: list[MessageRecord] = []
+        self.rendered_widgets: dict[int, object] = {}
         self.selected_message = -1
 
-    def register_message(self, widget, role: str) -> None:
+    def register_message(self, widget, role: str, text: str = "") -> MessageRecord:
         widget.add_class("conversation-message")
-        self.message_widgets.append((role, widget))
+        record = MessageRecord.create(len(self.message_records), role, text)
+        self.message_records.append(record)
+        self.rendered_widgets[record.message_id] = widget
+        return record
 
     def select_message(self, index: int) -> None:
-        if not self.message_widgets:
+        if not self.message_records:
             return
-        index = max(0, min(index, len(self.message_widgets) - 1))
+        index = max(0, min(index, len(self.message_records) - 1))
         self.selected_message = index
         self.follow_output = False
-        for position, (_role, widget) in enumerate(self.message_widgets):
-            widget.set_class(position == index, "-selected")
-        self.scroll_to_widget(self.message_widgets[index][1], animate=False)
+        for position, record in enumerate(self.message_records):
+            widget = self.rendered_widgets.get(record.message_id)
+            if widget is not None:
+                widget.set_class(position == index, "-selected")
+        widget = self.rendered_widgets.get(self.message_records[index].message_id)
+        if widget is not None:
+            self.scroll_to_widget(widget, animate=False)
         if self.owner is not None:
             self.owner.set_scroll_button(True)
 
     def move_message(self, direction: int) -> None:
-        if not self.message_widgets:
+        if not self.message_records:
             return
         if self.selected_message < 0:
-            next_index = 0 if direction > 0 else len(self.message_widgets) - 1
+            next_index = 0 if direction > 0 else len(self.message_records) - 1
         else:
             next_index = self.selected_message + direction
         self.select_message(next_index)
 
     def clear_message_selection(self) -> None:
         self.selected_message = -1
-        for _role, widget in self.message_widgets:
+        for widget in self.rendered_widgets.values():
             widget.remove_class("-selected")
 
     def jump_to_first_message(self) -> None:
-        if self.message_widgets:
+        if self.message_records:
             self.select_message(0)
 
     def jump_to_last_message(self) -> None:
-        if not self.message_widgets:
+        if not self.message_records:
             return
-        self.select_message(len(self.message_widgets) - 1)
+        self.select_message(len(self.message_records) - 1)
         self.follow_output = True
         if self.owner is not None:
             self.owner.scroll_to_bottom()
@@ -134,11 +143,16 @@ class TextualUI(AgentUI):
         self._read_lines = 0
         self._last_map_signature: tuple | None = None
 
-    def _put(self, widget, message_role: str | None = None) -> None:
+    def _put(
+        self,
+        widget,
+        message_role: str | None = None,
+        message_text: str = "",
+    ) -> None:
         feed = self.app.query_one("#feed", ChatFeed)
         feed.mount(widget)
         if message_role:
-            feed.register_message(widget, message_role)
+            feed.register_message(widget, message_role, message_text)
         if feed.follow_output:
             feed.scroll_end(animate=False)
 
@@ -146,11 +160,11 @@ class TextualUI(AgentUI):
         expanded, collapsed = markdown_fold_renderables(label, content, preview_lines)
         if collapsed is None:
             widget = Static(expanded)
-            self._put(widget, message_role="assistant")
+            self._put(widget, message_role="assistant", message_text=content)
             return widget
         widget = ExpandableStatic(expanded, collapsed)
         self.app.register_expandable(widget)
-        self._put(widget, message_role="assistant")
+        self._put(widget, message_role="assistant", message_text=content)
         return widget
 
     def _put_folded(self, label: str, content: str, preview_lines: int, content_style: str | None = None):
@@ -767,7 +781,7 @@ class TermuxCoderApp(App):
         line.append(escape(text), style=f"bold {theme.WHITE}")
         message_widget = Static(line)
         feed.mount(message_widget)
-        feed.register_message(message_widget, "user")
+        feed.register_message(message_widget, "user", text)
         feed.scroll_end(animate=False)
         self.run_agent(text)
 

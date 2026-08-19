@@ -25,11 +25,12 @@ def test_chat_feed_registers_only_conversation_messages():
             feed.register_message(user, "user")
             feed.register_message(assistant, "assistant")
 
-            assert [(role, widget) for role, widget in feed.message_widgets] == [
-                ("user", user),
-                ("assistant", assistant),
+            assert [(record.role, record.text) for record in feed.message_records] == [
+                ("user", ""),
+                ("assistant", ""),
             ]
-            assert tool not in [widget for _role, widget in feed.message_widgets]
+            assert list(feed.rendered_widgets.values()) == [user, assistant]
+            assert tool not in feed.rendered_widgets.values()
 
     asyncio.run(scenario())
 
