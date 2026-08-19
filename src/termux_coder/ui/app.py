@@ -4,7 +4,7 @@ import time
 
 from rich.markup import escape
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -28,7 +28,16 @@ from .blocks import (
 
 
 class ChatFeed(VerticalScroll):
-    pass
+    def __init__(self, owner=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+        self.follow_output = True
+
+    def on_scroll(self, _event: events.Scroll) -> None:
+        at_end = self.scroll_y >= self.max_scroll_y - 1
+        self.follow_output = at_end
+        if self.owner is not None:
+            self.owner.set_scroll_button(not at_end)
 
 
 class ContextActionBar(Horizontal):
@@ -72,7 +81,8 @@ class TextualUI(AgentUI):
     def _put(self, widget) -> None:
         feed = self.app.query_one("#feed", ChatFeed)
         feed.mount(widget)
-        feed.scroll_end(animate=False)
+        if feed.follow_output:
+            feed.scroll_end(animate=False)
 
     def _put_markdown_folded(self, label: str, content: str, preview_lines: int):
         expanded, collapsed = markdown_fold_renderables(label, content, preview_lines)
@@ -128,7 +138,9 @@ class TextualUI(AgentUI):
             self._stream_widget.update(
                 Text("∷ " + "".join(self._buf), style=theme.WHITE)
             )
-            self.app.query_one("#feed", ChatFeed).scroll_end(animate=False)
+            feed = self.app.query_one("#feed", ChatFeed)
+            if feed.follow_output:
+                feed.scroll_end(animate=False)
             self._last_flush = time.monotonic()
 
     async def on_event(self, kind: str, **payload) -> None:
@@ -385,6 +397,8 @@ class TermuxCoderApp(App):
     #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
     #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
     #activity.-hidden, #status.-hidden { display: none; }
+    #scroll-bottom { height: 1; margin: 0 1; display: none; min-width: 18; }
+    #scroll-bottom.-visible { display: block; }
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
@@ -416,9 +430,10 @@ class TermuxCoderApp(App):
             yield DirectoryTree(str(self.agent.jail.root), id="tree")
             with Vertical(id="maincol"):
                 yield Static(id="header")
-                yield ChatFeed(id="feed")
+                yield ChatFeed(self, id="feed")
                 yield Static(id="activity")
                 yield Static(id="status")
+                yield Button("↓ New output", id="scroll-bottom")
                 yield Horizontal(id="actions")
                 yield PromptInput(self, id="prompt", placeholder="Ask your question…")
 
@@ -739,6 +754,19 @@ class TermuxCoderApp(App):
 
         return False
 
+    def set_scroll_button(self, visible: bool) -> None:
+        try:
+            button = self.query_one("#scroll-bottom", Button)
+        except NoMatches:
+            return
+        button.set_class(visible, "-visible")
+
+    def scroll_to_bottom(self) -> None:
+        feed = self.query_one("#feed", ChatFeed)
+        feed.follow_output = True
+        feed.scroll_end(animate=False)
+        self.set_scroll_button(False)
+
     def show_context_actions(self, answer: str, widget) -> None:
         actions = self.query_one("#actions", Horizontal)
         actions.remove_children()
@@ -755,7 +783,9 @@ class TermuxCoderApp(App):
         actions.remove_class("-visible")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "action-view":
+        if event.button.id == "scroll-bottom":
+            self.scroll_to_bottom()
+        elif event.button.id == "action-view":
             widget = self._last_answer_widget
             if isinstance(widget, ExpandableStatic):
                 widget.toggle()
