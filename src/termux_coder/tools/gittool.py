@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 import time
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
+
+# Resolve git binary once at import time to avoid partial-path lookup (B607)
+_GIT_BIN: str | None = shutil.which("git")
 
 class GitEmptyArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -30,8 +34,10 @@ class GitError(Exception):
 
 
 def run_git(root: Path, args: list[str], timeout: int = 30) -> str:
+    if _GIT_BIN is None:
+        raise GitError("git executable not found in PATH")
     proc = subprocess.run(
-        ["git", "-C", str(root), *args],
+        [_GIT_BIN, "-C", str(root), *args],
         capture_output=True,
         text=True,
         timeout=timeout,

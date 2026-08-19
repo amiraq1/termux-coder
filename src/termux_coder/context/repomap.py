@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
+import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
 
 from ..security.jail import WorkspaceJail
+
+_log = logging.getLogger(__name__)
+
+# Resolve git binary once at import time to avoid partial-path lookup (B607)
+_GIT_BIN: str | None = shutil.which("git")
 
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", ".termux_coder",
@@ -67,8 +74,10 @@ class RepoMap:
     def _collect_files(self) -> list[Path]:
         root = self.jail.root
         try:
+            if _GIT_BIN is None:
+                raise FileNotFoundError("git executable not found in PATH")
             proc = subprocess.run(
-                ["git", "ls-files"], cwd=root, capture_output=True, text=True, timeout=10
+                [_GIT_BIN, "ls-files"], cwd=root, capture_output=True, text=True, timeout=10
             )
             if proc.returncode == 0:
                 paths = []
@@ -79,8 +88,8 @@ class RepoMap:
                     if len(paths) >= MAX_FILES:
                         break
                 return paths
-        except Exception:
-            pass
+        except (OSError, TimeoutError, FileNotFoundError) as exc:
+            _log.debug("repo-map git fallback: %s", type(exc).__name__)
 
         paths = []
         for p in sorted(root.rglob("*")):

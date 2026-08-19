@@ -73,7 +73,8 @@ class LspClient:
         await self.proc.stdin.drain()
 
     async def _read_loop(self) -> None:
-        assert self.proc and self.proc.stdout
+        if self.proc is None or self.proc.stdout is None:
+            raise RuntimeError("LSP process is not ready: proc or stdout is None")
         try:
             while True:
                 line = await self.proc.stdout.readline()
@@ -138,8 +139,8 @@ class LspClient:
         try:
             await self.request("shutdown", {})
             await self.notify("exit", {})
-        except Exception:
-            pass
+        except (OSError, asyncio.TimeoutError, ConnectionResetError):
+            pass  # LSP shutdown is best-effort; errors here are non-critical
         if self.proc and self.proc.returncode is None:
             self.proc.kill()
         if self._reader_task:

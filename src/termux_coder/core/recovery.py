@@ -53,7 +53,7 @@ def recover_tool_calls(content: str, registry) -> list[dict] | None:
     for match in re.finditer(r"\{", content):
         try:
             obj, _ = decoder.raw_decode(content[match.start():])
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             continue
         if not isinstance(obj, dict):
             continue

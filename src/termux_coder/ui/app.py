@@ -9,6 +9,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DirectoryTree, Footer, Input, Static
+from textual.css.query import NoMatches
 
 from .. import theme
 from ..core.agent import Agent
@@ -430,8 +431,8 @@ class TermuxCoderApp(App):
             self.query_one("#activity", Static).update(
                 Text(self._activity, style=theme.DIM)
             )
-        except Exception:
-            pass
+        except NoMatches:
+            pass  # widget not yet mounted; activity label will render on next compose
 
     def _render_header(self) -> None:
         project = self.agent.jail.root.name or str(self.agent.jail.root)

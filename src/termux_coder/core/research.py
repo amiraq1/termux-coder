@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Protocol
@@ -15,6 +16,13 @@ from ..tools.web_models import (
     WebSearchResult,
 )
 from ..tools.web_provider import WebSearchProvider
+
+_log = logging.getLogger(__name__)
+
+
+def _log_research_fail(exc_type: str) -> None:
+    """Log a page-fetch failure by error type only — never logs URL content or response body."""
+    _log.debug("research page fetch failed: %s", exc_type)
 
 
 class PageFetcher(Protocol):
@@ -199,9 +207,10 @@ class ResearchCoordinator:
                     fetched[item.url] = await self.page_fetcher.fetch(
                         FetchPageArgs(url=item.url, max_chars=self.fetch_max_chars)
                     )
-                except Exception:
-                    # A failed page is represented by its bounded search snippet;
-                    # one unavailable source must not discard the entire packet.
+                except (OSError, TimeoutError, ConnectionError, Exception) as exc:  # noqa: BLE001
+                    # One unavailable source must not discard the entire research packet.
+                    # Log only the error type — never the URL content or response body.
+                    _log_research_fail(type(exc).__name__)
                     continue
         return await self.build_packet(intent, search_result, fetched_pages=fetched)
 
