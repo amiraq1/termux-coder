@@ -5,6 +5,8 @@ import shlex
 import subprocess
 from pydantic import BaseModel, ConfigDict
 
+from ..security.scrubber import scrub
+
 class RunCommandArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     command: str
@@ -73,5 +75,10 @@ async def run_command(args: RunCommandArgs, ctx) -> str:
         out += proc.stdout
     if proc.stderr:
         out += proc.stderr
-    await ctx.ui.on_event("shell_done", command=command, output=out)
-    return out[: ctx.settings.max_output_chars]
+
+    # Treat command output as untrusted data.  Scrub both the echoed command
+    # and stdout/stderr before either crosses the UI or model boundary.
+    safe_command = scrub(command)
+    safe_output = scrub(out)
+    await ctx.ui.on_event("shell_done", command=safe_command, output=safe_output)
+    return safe_output[: ctx.settings.max_output_chars]
