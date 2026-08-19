@@ -1,0 +1,80 @@
+name: Tests and security checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install project and development tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" bandit
+
+      - name: Compile source and tests
+        run: python -m compileall -q src tests
+
+      - name: Run test suite
+        run: python -m pytest -q -rs
+
+      - name: Run high-severity Bandit gate
+        run: bandit -q -r src -lll
+
+      - name: Check repository for exposed credentials
+        run: bash scripts/check_secrets.sh
+
+  threat-audit:
+    name: Threat audit verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: tests
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run evidence-based threat audit
+        run: |
+          mkdir -p artifacts
+          python scripts/threat_audit.py --verify --output artifacts/THREAT_AUDIT.md
+
+      - name: Upload threat audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threat-audit-${{ github.sha }}
+          path: artifacts/THREAT_AUDIT.md
+          if-no-files-found: error
+          retention-days: 30

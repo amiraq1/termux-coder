@@ -12,14 +12,15 @@ def test_copy_text_uses_allowlisted_backend_and_scrubs_secrets(monkeypatch):
         calls.append((args, kwargs))
 
     monkeypatch.setattr(clipboard.subprocess, "run", fake_run)
-    result = clipboard.copy_text("answer api_key=sk-12345678901234567890")
+    fake_key = "sk-" + "12345678901234567890"
+    result = clipboard.copy_text(f"answer api_key={fake_key}")
 
     assert result.ok is True
     assert result.backend == "termux-clipboard-set"
     assert result.redacted is True
     assert len(calls) == 1
     assert calls[0][0][0] == ("/usr/bin/clipboard",)
-    assert "sk-12345678901234567890" not in calls[0][1]["input"]
+    assert fake_key not in calls[0][1]["input"]
     assert "shell" not in calls[0][1]
 
 

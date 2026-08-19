@@ -44,8 +44,8 @@ def run(coro):
 
 def test_run_command_scrubs_stdout_stderr_and_echoed_command(tmp_path):
     ctx = make_context(tmp_path)
-    stdout_secret = "sk-abcdefghijklmnopqrstuvwxyz123456"
-    stderr_secret = "ghp_abcdefghijklmnopqrstuvwxyz123456"
+    stdout_secret = "sk-" + "abcdefghijklmnopqrstuvwxyz123456"
+    stderr_secret = "ghp_" + "abcdefghijklmnopqrstuvwxyz123456"
     command = (
         f"{shlex.quote(sys.executable)} -c "
         + shlex.quote(

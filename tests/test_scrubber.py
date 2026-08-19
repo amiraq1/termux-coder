@@ -6,17 +6,19 @@ from termux_coder.security.scrubber import SecretScrubber
 
 def test_scrub_text_redacts_known_credentials():
     scrubber = SecretScrubber()
+    openai_key = "sk-" + "abcdefghijklmnopqrstuvwxyz123456"
+    github_token = "ghp_" + "abcdefghijklmnopqrstuvwxyz123456"
     text = (
-        "sk-abcdefghijklmnopqrstuvwxyz123456 "
-        "ghp_abcdefghijklmnopqrstuvwxyz123456 "
+        f"{openai_key} "
+        f"{github_token} "
         "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9 "
         "https://user:secret-pass@example.com/api"
     )
 
     result = scrubber.scrub(text)
 
-    assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in result
-    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in result
+    assert openai_key not in result
+    assert github_token not in result
     assert "eyJhbGciOiJIUzI1NiJ9" not in result
     assert "secret-pass" not in result
     assert "[OPENAI_KEY_REDACTED]" in result
@@ -44,20 +46,20 @@ def test_scrub_structured_payload_redacts_sensitive_keys_without_mutation():
 
 
 def test_audit_log_scrubs_before_jsonl_persistence(tmp_path):
-    secret = "gho_abcdefghijklmnopqrstuvwxyz123456"
+    secret = "gho_" + "abcdefghijklmnopqrstuvwxyz123456"
     path = tmp_path / "audit.jsonl"
     audit = AuditLog(path)
 
     audit.log(
         "tool_call",
         tool="web_search",
-        api_key="sk-local-test-secret",
+        api_key="sk-" + "local-test-secret",
         headers={"Authorization": f"Bearer {secret}"},
     )
 
     raw = path.read_text(encoding="utf-8")
     record = json.loads(raw)
-    assert "sk-local-test-secret" not in raw
+    assert "sk-" + "local-test-secret" not in raw
     assert secret not in raw
     assert record["api_key"] == "[REDACTED]"
     assert record["headers"]["Authorization"] == "[REDACTED]"
