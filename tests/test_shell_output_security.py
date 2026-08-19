@@ -29,7 +29,7 @@ class RecordingAudit:
 
 def make_context(tmp_path: Path):
     return SimpleNamespace(
-        policy=CommandPolicy("AUTO"),
+        policy=CommandPolicy("ASK"),
         jail=SimpleNamespace(root=tmp_path),
         settings=SimpleNamespace(command_timeout=10, max_output_chars=8000),
         state=SimpleNamespace(read_files=set()),

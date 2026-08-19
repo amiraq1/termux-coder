@@ -35,6 +35,10 @@ async def run_command(args: RunCommandArgs, ctx) -> str:
         ctx.audit.log("command_blocked", command=command)
         return "command blocked by policy"
 
+    if getattr(ctx.policy, "mode", "ASK") == "AUTO" and not ctx.policy.is_auto_allowlisted(command):
+        ctx.audit.log("command_blocked", command=command, reason="auto_allowlist")
+        return "command blocked by AUTO allowlist"
+
     if ctx.policy.requires_approval(command) and not getattr(ctx, "orchestrator_approval_granted", False):
         approved = await ctx.ui.request_approval(
             "command",

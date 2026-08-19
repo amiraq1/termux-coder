@@ -44,6 +44,12 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "git_checkpoint":  Permission.EXECUTE,
 }
 
+AUTO_SAFE_COMMANDS = frozenset({"ls", "pwd"})
+AUTO_SAFE_GIT_READS = frozenset({"status"})
+AUTO_SAFE_PYTHON_MODULES = frozenset({"pytest", "compileall", "unittest"})
+AUTO_SAFE_TOOLS = frozenset({"pytest", "ruff", "mypy", "pyright"})
+
+
 BLOCKED_PATTERNS = [
     "rm -rf /",
     "rm -rf ~",
@@ -89,16 +95,39 @@ class CommandPolicy:
             return False
         if not argv or any(token in {"-c", "--command", "&&", "||", ";", "|"} for token in argv):
             return False
-        if argv[0] in {"pytest", "ruff", "mypy", "pyright"}:
+        if argv[0] in AUTO_SAFE_TOOLS:
             return True
-        return len(argv) >= 3 and argv[0] in {"python", "python3"} and argv[1] == "-m" and argv[2] in {
-            "pytest", "compileall", "unittest"
-        }
+        return (
+            len(argv) >= 3
+            and argv[0] in {"python", "python3"}
+            and argv[1] == "-m"
+            and argv[2] in AUTO_SAFE_PYTHON_MODULES
+        )
+
+    def is_auto_allowlisted(self, command: str) -> bool:
+        """Return whether AUTO may execute this argv without human approval."""
+        try:
+            argv = shlex.split(command, posix=True)
+        except ValueError:
+            return False
+        if not argv or any(token in {"-c", "--command", "&&", "||", ";", "|"} for token in argv):
+            return False
+        if self.is_auto_verification(command):
+            return True
+        executable = argv[0]
+        if executable in AUTO_SAFE_COMMANDS:
+            return all(
+                not token.startswith("/") and ".." not in token
+                for token in argv[1:]
+            )
+        if executable == "git":
+            return len(argv) >= 2 and argv[1] in AUTO_SAFE_GIT_READS
+        return False
 
     def requires_approval(self, command: str) -> bool:
-        # AUTO وعمليات التحقق المسموحة في GRANULAR فقط تتخطى الموافقة.
+        # AUTO لا يتخطى الموافقة إلا للأوامر الموجودة في allowlist.
         if self.mode == "AUTO":
-            return False
+            return not self.is_auto_allowlisted(command)
         if self.mode == "GRANULAR" and self.is_auto_verification(command):
             return False
         return True
@@ -161,7 +190,16 @@ class PolicyEngine:
         if perm == Permission.NETWORK and self.mode == "READONLY":
             return PolicyDecision(True, False, "network_read_ok", "low")
 
-        # الكتابة والتنفيذ والبحث الشبكي في ASK تحتاج موافقة، وAUTO يتخطاها.
+        # الكتابة والتنفيذ والبحث الشبكي في ASK تحتاج موافقة.
+        if self.mode == "AUTO" and tool_name == "run_command":
+            command = str((arguments or {}).get("command", ""))
+            if not self._cmd_policy.is_auto_allowlisted(command):
+                return PolicyDecision(
+                    False,
+                    False,
+                    "AUTO mode: command is outside the execution allowlist",
+                    "high",
+                )
         needs_approval = self.mode != "AUTO"
         risk = "high" if perm in {Permission.WRITE, Permission.EXECUTE} else "medium"
         return PolicyDecision(
@@ -184,6 +222,13 @@ class PolicyEngine:
                 allowed=False,
                 requires_approval=False,
                 reason=f"blocked command pattern detected",
+            )
+        if self.mode == "AUTO" and not self._cmd_policy.is_auto_allowlisted(command):
+            return PolicyDecision(
+                allowed=False,
+                requires_approval=False,
+                reason="AUTO mode: command is outside the execution allowlist",
+                risk="high",
             )
         needs_approval = self._cmd_policy.requires_approval(command)
         return PolicyDecision(

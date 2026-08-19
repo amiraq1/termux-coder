@@ -213,3 +213,30 @@ def test_settings_accepts_granular_from_environment(monkeypatch):
 
     monkeypatch.setenv("TERMUX_CODER_SECURITY", "GRANULAR")
     assert Settings().security_mode == "GRANULAR"
+
+
+def test_auto_allowlist_accepts_bounded_verification():
+    policy = CommandPolicy("AUTO")
+
+    assert policy.is_auto_allowlisted("pytest -q")
+    assert policy.is_auto_allowlisted("python -m compileall -q src")
+    assert policy.is_auto_allowlisted("git status --short")
+    assert not policy.is_auto_allowlisted("python -c 'print(1)'")
+    assert not policy.is_auto_allowlisted("bash -c 'echo unsafe'")
+    assert not policy.is_auto_allowlisted("cat .env")
+
+
+def test_auto_engine_denies_non_allowlisted_run_command():
+    decision = PolicyEngine("AUTO").evaluate_tool(
+        "run_command", {"command": "python -c 'print(1)'"}
+    )
+
+    assert not decision.allowed
+    assert "allowlist" in decision.reason.lower()
+
+
+def test_auto_command_evaluation_denies_non_allowlisted_command():
+    decision = PolicyEngine("AUTO").evaluate_command("curl https://example.com")
+
+    assert not decision.allowed
+    assert "allowlist" in decision.reason.lower()
