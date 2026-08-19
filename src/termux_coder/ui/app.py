@@ -700,12 +700,21 @@ class TermuxCoderApp(App):
         glyphs = current_glyphs()
         text = Text(justify="center")
         pixel = glyphs.block_full
-        logo_rows = (
-            f"{pixel * 3}   {pixel}  {pixel * 4}  {pixel * 4}  {pixel * 4}  {pixel * 4}  {pixel * 4}",
-            f"{pixel} {pixel}   {pixel}  {pixel}  {pixel}     {pixel}  {pixel}  {pixel}  {pixel}",
-            f"{pixel * 3}   {pixel}  {pixel * 4}  {pixel * 3}  {pixel}  {pixel * 3}  {pixel}  {pixel}",
-            f"{pixel} {pixel}   {pixel}  {pixel}  {pixel}     {pixel}  {pixel}  {pixel}  {pixel}",
-            f"{pixel} {pixel}   {pixel}  {pixel}  {pixel * 4}  {pixel * 4}  {pixel * 4}  {pixel * 4}",
+        letter_patterns = {
+            "N": ("#   #", "##  #", "# # #", "#  ##", "#   #"),
+            "A": (" ### ", "#   #", "#####", "#   #", "#   #"),
+            "B": ("#### ", "#   #", "#### ", "#   #", "#### "),
+            "D": ("#### ", "#   #", "#   #", "#   #", "#### "),
+            "C": (" ####", "#    ", "#    ", "#    ", " ####"),
+            "O": (" ### ", "#   #", "#   #", "#   #", " ### "),
+            "E": ("#####", "#    ", "#### ", "#    ", "#####"),
+        }
+        logo_rows = tuple(
+            "  ".join(
+                letter_patterns[letter][row].replace("#", pixel)
+                for letter in "NABDCODE"
+            )
+            for row in range(5)
         )
         for index, row in enumerate(logo_rows):
             text.append(row + "\n", style="bold #f5f5f5" if index < 3 else theme.DIM)
