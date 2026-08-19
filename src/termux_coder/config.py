@@ -105,6 +105,7 @@ class Settings:
 
     repo_map_enabled: bool = field(default_factory=lambda: _env("REPO_MAP", "1") == "1")
     repo_map_budget: int = field(default_factory=lambda: int(_env("REPO_MAP_BUDGET", "6000")))
+    repo_map_timeout_s: float = field(default_factory=lambda: float(_env("REPO_MAP_TIMEOUT", "8")))
 
     lsp_enabled: bool = field(default_factory=lambda: _env("LSP", "1") == "1")
     lsp_wait: float = field(default_factory=lambda: float(_env("LSP_WAIT", "0.8")))

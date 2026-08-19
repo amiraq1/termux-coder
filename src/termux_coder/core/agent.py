@@ -164,6 +164,7 @@ class Agent:
             self.research_coordinator,
             self.capability_registry,
         )
+        self._repo_map_task: asyncio.Task | None = None
         self.trace_store = (
             TraceStore(settings.state_dir / "traces.jsonl")
             if getattr(settings, "execution_trace_enabled", True)
@@ -190,6 +191,45 @@ class Agent:
         self.state.research_intent = None
         self.state.research_packet = None
 
+    async def _render_repo_map_with_timeout(self) -> str | None:
+        """Render repo_map without allowing a blocking scan to freeze the TUI."""
+        task = self._repo_map_task
+        if task is not None:
+            if not task.done():
+                await self.ui.on_event(
+                    "repo_map_timeout",
+                    timeout_s=float(getattr(self.settings, "repo_map_timeout_s", 8.0)),
+                    reason="previous repo_map scan is still running",
+                )
+                return None
+            try:
+                task.result()
+            except Exception:
+                pass
+            self._repo_map_task = None
+
+        timeout_s = min(max(float(getattr(self.settings, "repo_map_timeout_s", 8.0)), 0.01), 30.0)
+        task = asyncio.create_task(asyncio.to_thread(self.repomap.render_budget))
+        self._repo_map_task = task
+        try:
+            result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
+            self._repo_map_task = None
+            return result
+        except asyncio.TimeoutError:
+            await self.ui.on_event(
+                "repo_map_timeout",
+                timeout_s=timeout_s,
+                reason="repository scan exceeded its time budget",
+            )
+            return None
+        except (OSError, ValueError, RuntimeError) as exc:
+            self._repo_map_task = None
+            await self.ui.on_event(
+                "repo_map_failed",
+                error=type(exc).__name__,
+            )
+            return None
+
     async def _run_turn_orchestrated(self, user_text: str) -> None:
         """مسار P2 التجريبي؛ يحافظ على عقد الجلسة ويستخدم المسار القديم كخطة تراجع."""
         self._clear_turn_research_context()
@@ -200,11 +240,12 @@ class Agent:
             self.store.set_title(self.session_id, user_text[:40])
 
         if self.settings.repo_map_enabled:
-            map_text = await asyncio.to_thread(self.repomap.render_budget)
-            if self.repomap.changed or not self._map_sent:
-                await self.ui.on_event("map_ready", **self.repomap.last_stats)
-                self._map_sent = True
-            self._refresh_map_message(map_text)
+            map_text = await self._render_repo_map_with_timeout()
+            if map_text is not None:
+                if self.repomap.changed or not self._map_sent:
+                    await self.ui.on_event("map_ready", **self.repomap.last_stats)
+                    self._map_sent = True
+                self._refresh_map_message(map_text)
 
         def prepare_messages(messages: list[dict]) -> list[dict]:
             current_seq = len(messages) - 1
@@ -295,11 +336,12 @@ class Agent:
         await self.ui.on_event("turn_start")
 
         if self.settings.repo_map_enabled:
-            map_text = await asyncio.to_thread(self.repomap.render_budget)
-            if self.repomap.changed or not self._map_sent:
-                await self.ui.on_event("map_ready", **self.repomap.last_stats)
-                self._map_sent = True
-            self._refresh_map_message(map_text)
+            map_text = await self._render_repo_map_with_timeout()
+            if map_text is not None:
+                if self.repomap.changed or not self._map_sent:
+                    await self.ui.on_event("map_ready", **self.repomap.last_stats)
+                    self._map_sent = True
+                self._refresh_map_message(map_text)
 
         try:
             for round_idx in range(self.settings.max_tool_rounds):

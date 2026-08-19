@@ -359,6 +359,18 @@ class TextualUI(AgentUI):
             # Repository mapping remains internal; keep it out of the activity feed.
             return
 
+        elif kind in {"repo_map_timeout", "repo_map_failed"}:
+            reason = payload.get("reason") or payload.get("error") or "repository map unavailable"
+            self.app.update_activity("WARNING", str(reason))
+            self._put(
+                Static(
+                    Text(
+                        f"repo_map: {reason}; continuing without repository map",
+                        style=theme.ORANGE,
+                    )
+                )
+            )
+
         elif kind == "read_ok":
             self._read_files += 1
             self._read_lines += int(payload.get("lines", 0))
