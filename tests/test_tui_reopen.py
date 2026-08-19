@@ -53,8 +53,9 @@ def test_ctrl_a_reopens_provider_picker_from_prompt(tmp_path, monkeypatch):
             assert isinstance(app.screen, ProviderPickerScreen)
 
             provider_list = app.screen.query_one("#provider-list")
-            provider_list.index = 1
-            provider_list.focus()
+            await pilot.press("down")
+            await pilot.pause()
+            assert provider_list.index == 1
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, ModelPickerScreen)

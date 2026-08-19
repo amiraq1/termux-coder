@@ -23,6 +23,43 @@ class _ModelRow(ListItem):
         self.model_name = model
 
 
+class _ProviderSearchInput(Input):
+    def __init__(self, owner: "ProviderPickerScreen", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.owner.dismiss(None)
+        elif event.key == self.owner.next_key:
+            event.stop()
+            self.owner._move_provider(1)
+        elif event.key == self.owner.prev_key:
+            event.stop()
+            self.owner._move_provider(-1)
+        elif event.key == "enter":
+            event.stop()
+            self.owner._select_current_provider()
+
+
+class _ProviderListView(ListView):
+    def __init__(self, owner: "ProviderPickerScreen", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.owner.dismiss(None)
+        elif event.key == self.owner.next_key:
+            event.stop()
+            self.owner._move_provider(1)
+        elif event.key == self.owner.prev_key:
+            event.stop()
+            self.owner._move_provider(-1)
+
+
 class _ModelSearchInput(Input):
     def __init__(self, owner: "ModelPickerScreen", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -102,19 +139,27 @@ class ProviderPickerScreen(ModalScreen):
         order: tuple[str, ...],
         configured: set[str],
         current: str = "auto",
+        *,
+        next_key: str = "down",
+        prev_key: str = "up",
     ) -> None:
         super().__init__()
         self.specs = specs
         self.order = order
         self.configured = configured
         self.current = current
+        self.next_key = next_key.strip().lower() or "down"
+        self.prev_key = prev_key.strip().lower() or "up"
 
     def compose(self) -> ComposeResult:
         with Container(id="provider-dialog"):
             yield Static("Connect a provider", id="provider-title")
-            yield Input(placeholder="Search", id="provider-search")
-            yield ListView(id="provider-list")
-            yield Static("Enter select   Esc close", id="provider-footer")
+            yield _ProviderSearchInput(self, placeholder="Search", id="provider-search")
+            yield _ProviderListView(self, id="provider-list")
+            yield Static(
+                f"↑/↓ move   Enter select   Esc close",
+                id="provider-footer",
+            )
 
     def on_mount(self) -> None:
         self._rebuild("")
@@ -146,6 +191,48 @@ class ProviderPickerScreen(ModalScreen):
                 view.mount(_ProviderRow(name, label, name in self.configured))
         if not popular and not providers:
             view.mount(ListItem(Label("No providers match your search"), disabled=True))
+        self.call_after_refresh(self._highlight_current_provider)
+
+    def _provider_rows(self) -> list[int]:
+        view = self.query_one("#provider-list", ListView)
+        return [
+            index
+            for index, child in enumerate(view.children)
+            if isinstance(child, _ProviderRow)
+        ]
+
+    def _highlight_current_provider(self) -> None:
+        view = self.query_one("#provider-list", ListView)
+        rows = self._provider_rows()
+        if not rows:
+            return
+        for index in rows:
+            child = view.children[index]
+            if isinstance(child, _ProviderRow) and child.provider_name == self.current:
+                view.index = index
+                return
+        view.index = rows[0]
+
+    def _move_provider(self, direction: int) -> None:
+        view = self.query_one("#provider-list", ListView)
+        rows = self._provider_rows()
+        if not rows:
+            return
+        if view.index in rows:
+            position = rows.index(view.index)
+            next_position = (position + direction) % len(rows)
+        else:
+            next_position = 0 if direction > 0 else len(rows) - 1
+        view.index = rows[next_position]
+        view.focus()
+
+    def _select_current_provider(self) -> None:
+        view = self.query_one("#provider-list", ListView)
+        if view.index is None or view.index >= len(view.children):
+            return
+        item = view.children[view.index]
+        if isinstance(item, _ProviderRow):
+            self.dismiss(item.provider_name)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "provider-search":
