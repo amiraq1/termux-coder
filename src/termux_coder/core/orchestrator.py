@@ -150,6 +150,7 @@ MUTATION_TOOLS = frozenset({
     "write_file",
     "delete_file",
 })
+MAX_MUTATIONS_WITHOUT_VERIFICATION = 4
 
 import re
 
@@ -250,6 +251,8 @@ class AgentOrchestrator:
         self._tool_results: list[ToolResult] = []
         self._research_tools = {"web_search", "fetch_page"}
         self._edit_requested = False
+        self._mutation_call_keys: set[tuple[str, str]] = set()
+        self._mutations_without_verification = 0
 
     # ── واجهة الحالة ─────────────────────────────────────────
 
@@ -702,11 +705,41 @@ class AgentOrchestrator:
             duration_ms=result.duration_ms,
         )
 
-        if result.status in (VerificationStatus.PASSED, VerificationStatus.SKIPPED):
+        if result.status == VerificationStatus.PASSED:
             runner.reset_repair_attempts()
+            self._mutation_call_keys.clear()
+            self._mutations_without_verification = 0
             setattr(self.ctx, "last_patch_plan_id", None)
             self._transition(TurnState.PLANNING)
             return True, None
+
+        if result.status == VerificationStatus.SKIPPED:
+            plan_id = getattr(self.ctx, "last_patch_plan_id", None)
+            rollback_errors: list[str] = []
+            if plan_id:
+                from ..tools.transaction import rollback_plan_internal
+
+                rollback_errors = rollback_plan_internal(self.ctx, plan_id)
+                await self._on_event(
+                    "patch_plan_rollback",
+                    plan_id=plan_id,
+                    errors=rollback_errors,
+                    reason="verification_skipped",
+                )
+            self._transition(TurnState.FAILED)
+            reason = result.reason or "verification configuration is not present"
+            message = f"verification skipped: {reason}; mutation was not verified"
+            if rollback_errors:
+                message += f"; rollback failed: {rollback_errors}"
+            self.audit.log(
+                "verification_skipped_terminal",
+                turn_id=self._turn_id,
+                round=round_idx,
+                reason=reason,
+                rollback_errors=rollback_errors,
+            )
+            await self._on_event("verification_required", reason=message)
+            return False, message
 
         plan_id = getattr(self.ctx, "last_patch_plan_id", None)
         if plan_id:
@@ -981,6 +1014,8 @@ class AgentOrchestrator:
         self._cancel_event.clear()
         self._pending_approvals.clear()
         self._tool_results.clear()
+        self._mutation_call_keys.clear()
+        self._mutations_without_verification = 0
         if self._verification_runner is not None:
             self._verification_runner.reset_repair_attempts()
         deadline = time.monotonic() + self.max_duration_s
@@ -1327,6 +1362,48 @@ class AgentOrchestrator:
                     continue
 
                 # ── تنفيذ الاستدعاءات الجاهزة ────────────────
+                for ecall in ready:
+                    if ecall.call.name not in MUTATION_TOOLS:
+                        continue
+                    mutation_key = (ecall.call.name, ecall.call.arguments_fingerprint)
+                    if mutation_key in self._mutation_call_keys:
+                        message = (
+                            f"repeated mutation blocked: {ecall.call.name} "
+                            "was requested again without new verified progress"
+                        )
+                        blocked = ToolResult.failure(
+                            tool=ecall.call.name,
+                            call_id=ecall.call.call_id,
+                            code=ErrorCode.EXECUTION_ERROR,
+                            message=message,
+                            retryable=False,
+                        )
+                        self._append_message(messages, {
+                            "role": "tool",
+                            "tool_call_id": ecall.call.call_id,
+                            "content": blocked.to_content_str(),
+                        })
+                        self._tool_results.append(blocked)
+                        self.audit.log(
+                            "mutation_loop_guard",
+                            turn_id=self._turn_id,
+                            tool=ecall.call.name,
+                            call_id=ecall.call.call_id,
+                        )
+                        await self._on_event(
+                            "tool_blocked",
+                            tool=ecall.call.name,
+                            reason=message,
+                        )
+                        self._transition(TurnState.FAILED)
+                        return TurnResult(
+                            state=TurnState.FAILED,
+                            error=message,
+                            tool_results=self._tool_results,
+                            rounds_used=rounds_used,
+                        )
+                    self._mutation_call_keys.add(mutation_key)
+
                 if any(e.call.name in self._research_tools for e in ready):
                     if self._state != TurnState.RESEARCHING:
                         self._transition(TurnState.RESEARCHING)
@@ -1343,6 +1420,8 @@ class AgentOrchestrator:
                     )
                     result = await self._execute_one(ecall)
                     self._tool_results.append(result)
+                    if result.ok and ecall.call.name in MUTATION_TOOLS:
+                        self._mutations_without_verification += 1
                     if self._trace_store is not None:
                         self._trace_store.tool_result(
                             self._turn_id,
@@ -1379,6 +1458,25 @@ class AgentOrchestrator:
                     return TurnResult(
                         state=TurnState.FAILED,
                         error=verify_error,
+                        tool_results=self._tool_results,
+                        rounds_used=rounds_used,
+                    )
+                if self._mutations_without_verification >= MAX_MUTATIONS_WITHOUT_VERIFICATION:
+                    message = (
+                        "mutation loop blocked: too many successful mutations "
+                        "without a passed verification"
+                    )
+                    self._transition(TurnState.FAILED)
+                    self.audit.log(
+                        "mutation_loop_guard",
+                        turn_id=self._turn_id,
+                        reason=message,
+                        mutations=self._mutations_without_verification,
+                    )
+                    await self._on_event("tool_blocked", reason=message)
+                    return TurnResult(
+                        state=TurnState.FAILED,
+                        error=message,
                         tool_results=self._tool_results,
                         rounds_used=rounds_used,
                     )

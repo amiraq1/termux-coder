@@ -57,6 +57,10 @@ def e2e_workspace(tmp_path: Path) -> Path:
         'def greet(name):\n    return "Hello, " + name\n',
         encoding="utf-8",
     )
+    (project / ".termux-coder.toml").write_text(
+        "[verification]\ncommand = [\"python\", \"-m\", \"py_compile\", \"main.py\"]\ntimeout_s = 10\n",
+        encoding="utf-8",
+    )
     return project
 
 

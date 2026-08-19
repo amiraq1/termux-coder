@@ -187,3 +187,26 @@ def test_multi_file_plan_rolls_back_when_verification_fails(e2e_components):
         assert components["state"].applied_patches == []
 
     run(scenario())
+
+
+def test_verification_skipped_is_terminal_and_does_not_retry_mutation(e2e_components):
+    async def scenario():
+        components = e2e_components
+        (components["workspace"] / ".termux-coder.toml").unlink()
+        patch = patch_text('return "Hello, " + name', 'return "Changed"')
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool("skip1", "apply_patch", {"path": "main.py", "patch": patch}),
+                MockResponse.with_tool("skip2", "apply_patch", {"path": "main.py", "patch": patch}),
+            ],
+        )
+
+        result = await orch.run_turn([{"role": "user", "content": "edit and verify"}])
+
+        assert result.state.value == "failed"
+        assert result.error.startswith("verification skipped:")
+        assert [item.tool for item in result.tool_results] == ["apply_patch"]
+        assert any(kind == "verification_required" for kind, _ in components["ui"].events)
+
+    run(scenario())
