@@ -8,11 +8,12 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from .. import theme
 from ..providers.selection import ProviderSpec
+from .glyphs import current_glyphs
 
 
 class _ProviderRow(ListItem):
     def __init__(self, name: str, text: str, configured: bool) -> None:
-        prefix = "✓ " if configured else "  "
+        prefix = f"{current_glyphs().check} " if configured else "  "
         super().__init__(Label(prefix + text))
         self.provider_name = name
 
@@ -157,7 +158,7 @@ class ProviderPickerScreen(ModalScreen):
             yield _ProviderSearchInput(self, placeholder="Search", id="provider-search")
             yield _ProviderListView(self, id="provider-list")
             yield Static(
-                f"↑/↓ move   Enter select   Esc close",
+                f"{current_glyphs().up}/{current_glyphs().down} move   Enter select   Esc close",
                 id="provider-footer",
             )
 

@@ -6,6 +6,8 @@ import sys
 import threading
 import time
 
+from .ui.glyphs import current_glyphs
+
 ENABLE_COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
 RESET = "\x1b[0m"
@@ -19,7 +21,7 @@ ORANGE = "\x1b[38;2;245;166;35m"
 RED = "\x1b[38;2;248;113;113m"
 BLUE = "\x1b[38;2;115;170;255m"
 PURPLE = "\x1b[38;2;199;166;255m"
-DIAMOND = "◈"
+DIAMOND = current_glyphs().diamond
 
 _ACTION_COLORS = {
     "working": TEAL,
@@ -56,18 +58,18 @@ def paint(text: str, color: str) -> str:
 
 
 def mini_logo() -> str:
-    return paint(f"{DIAMOND} agent", TEALB)
+    return paint(f"{current_glyphs().diamond} agent", TEALB)
 
 
 def print_banner() -> None:
     print()
     cols = shutil.get_terminal_size((80, 24)).columns
     if cols < 52:
-        print(paint(f"  {DIAMOND} agent", TEALB))
+        print(paint(f"  {current_glyphs().diamond} agent", TEALB))
         print(paint("  terminal coding agent — Termux", DIM))
         print()
         return
-    print(paint(f"  {DIAMOND}", TEALB))
+    print(paint(f"  {current_glyphs().diamond}", TEALB))
     for line in BIG_ART:
         print(paint("  " + line, TEAL))
     print(paint("  terminal coding agent — Termux edition", DIM))
@@ -90,7 +92,7 @@ def action_color(action: str) -> str:
 
 def ctrl(action: str, detail: str = "") -> None:
     color = action_color(action)
-    line = f"{mini_logo()} {paint('▸', color)} {paint(action, color)}"
+    line = f"{mini_logo()} {paint(current_glyphs().fold_closed, color)} {paint(action, color)}"
     if detail:
         line += f" {paint(detail, DIM)}"
     print(line)
@@ -103,7 +105,8 @@ class Thinking:
         self._thread: threading.Thread | None = None
 
     def _spin(self) -> None:
-        frames = ["◈", "◇", "◆", "◇"]
+        glyphs = current_glyphs()
+        frames = [glyphs.diamond, "*", glyphs.diamond, "*"]
         i = 0
         while not self._stop.is_set():
             sys.stdout.write("\r" + paint(f"{frames[i % 4]} agent — {self.label}...", TEAL) + " ")

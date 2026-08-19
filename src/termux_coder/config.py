@@ -38,6 +38,8 @@ class Settings:
     tui_show_activity: bool = field(default_factory=lambda: _env("TUI_SHOW_ACTIVITY", "1") == "1")
     tui_show_status: bool = field(default_factory=lambda: _env("TUI_SHOW_STATUS", "1") == "1")
     tui_auto_focus: bool = field(default_factory=lambda: _env("TUI_AUTO_FOCUS", "1") == "1")
+    # auto follows UTF-8 terminal capabilities; use ascii for legacy fonts.
+    tui_unicode: str = field(default_factory=lambda: _env("TUI_UNICODE", "auto").lower())
     tui_model_next_key: str = field(default_factory=lambda: _env("TUI_MODEL_NEXT_KEY", "ctrl+down"))
     tui_model_prev_key: str = field(default_factory=lambda: _env("TUI_MODEL_PREV_KEY", "ctrl+up"))
 

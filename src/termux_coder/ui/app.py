@@ -15,6 +15,7 @@ from .. import theme
 from ..core.agent import Agent
 from .approval import ApprovalScreen
 from .clipboard import copy_text
+from .glyphs import configure_glyphs, current_glyphs
 from .messages import MessageRecord
 from .base import AgentUI
 from .blocks import (
@@ -245,8 +246,9 @@ class TextualUI(AgentUI):
             return
         full = diff_renderable(diff)
         collapsed = diff_renderable("\n".join(lines[:12]))
+        glyphs = current_glyphs()
         collapsed.append(
-            f"\n▸ DIFF · {len(lines)} lines · {len(lines) - 12} more · Ctrl+O to expand",
+            f"\n{glyphs.fold_closed} DIFF {glyphs.separator} {len(lines)} lines {glyphs.separator} {len(lines) - 12} more {glyphs.separator} Ctrl+O to expand",
             style=theme.DIM,
         )
         widget = ExpandableStatic(full, collapsed)
@@ -268,7 +270,7 @@ class TextualUI(AgentUI):
     def _flush_stream(self) -> None:
         if self._stream_widget is not None:
             self._stream_widget.update(
-                Text("∷ " + "".join(self._buf), style=theme.WHITE)
+                Text(current_glyphs().tree + "".join(self._buf), style=theme.WHITE)
             )
             feed = self.app.query_one("#feed", ChatFeed)
             if feed.follow_output:
@@ -307,7 +309,7 @@ class TextualUI(AgentUI):
             self._put(
                 Static(
                     Text(
-                        "↻ recovered: the model returned a text tool call; it was parsed safely",
+                        f"{current_glyphs().retry} recovered: the model returned a text tool call; it was parsed safely",
                         style=theme.DIM,
                     )
                 )
@@ -391,7 +393,8 @@ class TextualUI(AgentUI):
             pct = payload.get("usage_pct", 0)
             bar_len = 20
             filled = int(bar_len * pct / 100)
-            bar = "█" * filled + "░" * (bar_len - filled)
+            glyphs = current_glyphs()
+            bar = glyphs.block_full * filled + glyphs.block_empty * (bar_len - filled)
 
             by_priority = payload.get("by_priority", {})
             p0 = by_priority.get(0, 0) / 1000
@@ -506,7 +509,7 @@ class TextualUI(AgentUI):
 
 
 class TermuxCoderApp(App):
-    TITLE = "◈ agent"
+    TITLE = "agent"
 
     def render_message_record(self, record: MessageRecord):
         """Rebuild an evicted assistant message without changing its record."""
@@ -558,6 +561,7 @@ class TermuxCoderApp(App):
         super().__init__()
         self.agent = agent
         self.settings = settings or agent.settings
+        configure_glyphs(getattr(self.settings, "tui_unicode", "auto"))
         self.store = store
         self._tokens = 0
         self._busy = False
@@ -580,9 +584,9 @@ class TermuxCoderApp(App):
                 yield Static(id="activity")
                 yield ChatFeed(self, id="feed")
                 yield Static(id="status")
-                yield Button("↓ New output", id="scroll-bottom")
+                yield Button(f"{current_glyphs().down} New output", id="scroll-bottom")
                 yield Horizontal(id="actions")
-                yield PromptInput(self, id="prompt", placeholder="❯ Ask your question…")
+                yield PromptInput(self, id="prompt", placeholder=f"{current_glyphs().pointer}Ask your question{current_glyphs().ellipsis}")
 
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
@@ -632,17 +636,18 @@ class TermuxCoderApp(App):
         self._render_status()
 
     def update_activity(self, label: str, detail: str = "") -> None:
-        self._activity = f"{label} · {detail}" if detail else label
+        glyphs = current_glyphs()
+        self._activity = f"{label} {glyphs.separator} {detail}" if detail else label
         text = Text()
         if label == "EXPLORE":
             text.append("EXPLORE", style="bold #ffffff on #6c45f5")
             if detail:
                 text.append(f"  ({detail})", style=theme.WHITE)
         elif label == "RUNNING":
-            text.append("├ Running", style=theme.DIM)
+            text.append(f"{glyphs.tree}Running", style=theme.DIM)
             if detail:
                 text.append(f" ({detail})", style=theme.WHITE)
-            text.append("...", style=theme.DIM)
+            text.append(glyphs.ellipsis, style=theme.DIM)
         else:
             text.append(self._activity, style=theme.DIM)
         try:
@@ -655,25 +660,26 @@ class TermuxCoderApp(App):
         value = str(value)
         if len(value) <= limit:
             return value
-        return value[: limit - 1] + "…"
+        return value[: limit - 1] + current_glyphs().ellipsis
 
     def _render_header(self) -> None:
         project = self.agent.jail.root.name or str(self.agent.jail.root)
         provider = self._compact_header_value(self.agent.settings.provider, 24)
         model = self._compact_header_value(self.agent.settings.model, 42)
         text = Text()
-        text.append("◈ agent", style=f"bold {theme.TEAL}")
-        text.append(f"  ·  {project}", style=theme.WHITE)
+        glyphs = current_glyphs()
+        text.append(f"{glyphs.diamond} agent", style=f"bold {theme.TEAL}")
+        text.append(f"  {glyphs.separator}  {project}", style=theme.WHITE)
         text.append(
-            f"  ·  {self.agent.settings.security_mode}",
+            f"  {glyphs.separator}  {self.agent.settings.security_mode}",
             style=f"bold {theme.ORANGE}",
         )
         text.append("\n")
         text.append("provider: ", style=theme.DIM)
         text.append(provider, style=theme.WHITE)
-        text.append("  ·  model: ", style=theme.DIM)
+        text.append(f"  {glyphs.separator}  model: ", style=theme.DIM)
         text.append(model, style=theme.WHITE)
-        text.append("  ·  ", style=theme.DIM)
+        text.append(f"  {glyphs.separator}  ", style=theme.DIM)
         text.append(
             self._provider_health_label(),
             style=self._provider_health_style(),
@@ -686,16 +692,17 @@ class TermuxCoderApp(App):
 
     def _provider_health_label(self) -> str:
         state = self._provider_health.get("state", "unknown")
+        glyphs = current_glyphs()
         labels = {
-            "unknown": "? unknown",
-            "checking": "◌ checking",
-            "online": "● online",
-            "degraded": "! degraded",
-            "offline": "× offline",
-            "auth_error": "! auth error",
-            "rate_limited": "! rate limited",
+            "unknown": f"{glyphs.status_unknown} unknown",
+            "checking": f"{glyphs.status_checking} checking",
+            "online": f"{glyphs.status_online} online",
+            "degraded": f"{glyphs.status_degraded} degraded",
+            "offline": f"{glyphs.status_offline} offline",
+            "auth_error": f"{glyphs.status_degraded} auth error",
+            "rate_limited": f"{glyphs.status_degraded} rate limited",
         }
-        label = labels.get(state, "? unknown")
+        label = labels.get(state, f"{glyphs.status_unknown} unknown")
         latency = self._provider_health.get("latency_ms")
         if state == "online" and isinstance(latency, (int, float)):
             label += f" {latency:.0f}ms"
@@ -722,10 +729,11 @@ class TermuxCoderApp(App):
             self._render_status()
 
     def _render_status(self) -> None:
+        glyphs = current_glyphs()
         if self._busy:
-            t = Text("• Aligning…", style="bold #cfc3f7 on #2a2440")
+            t = Text(f"{glyphs.bullet} Aligning{glyphs.ellipsis}", style="bold #cfc3f7 on #2a2440")
         else:
-            t = Text("• Ready", style=f"bold {theme.TEAL}")
+            t = Text(f"{glyphs.bullet} Ready", style=f"bold {theme.TEAL}")
         t.append(f"  {self._tokens / 1000:.1f}k", style=theme.DIM)
         self.query_one("#status", Static).update(t)
 
@@ -836,7 +844,7 @@ class TermuxCoderApp(App):
             self.query_one("#feed", ChatFeed).mount(
                 Static(
                     Text(
-                        f"connected: {provider_name} · {model}",
+                        f"connected: {provider_name} {current_glyphs().separator} {model}",
                         style=theme.TEAL,
                     )
                 )
@@ -859,7 +867,7 @@ class TermuxCoderApp(App):
                 return
         feed = self.query_one("#feed", ChatFeed)
         line = Text()
-        line.append("❯ ", style=f"bold {theme.TEAL}")
+        line.append(current_glyphs().pointer, style=f"bold {theme.TEAL}")
         line.append(escape(text), style=f"bold {theme.WHITE}")
         message_widget = Static(line)
         feed.mount(message_widget)
