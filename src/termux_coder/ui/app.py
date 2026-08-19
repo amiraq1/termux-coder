@@ -567,7 +567,7 @@ class TermuxCoderApp(App):
     #tree { width: 32; display: none; background: #0e1218; border: tall #232a36; }
     #tree.-visible { display: block; }
     #maincol { width: 1fr; min-width: 0; }
-    #header { height: 4; min-height: 4; margin: 0 1; padding: 0 1; background: #000000; color: #e6e6f0; content-align: center middle; }
+    #header { height: 11; min-height: 11; margin: 0 1; padding: 0 1; background: #000000; color: #e6e6f0; content-align: center middle; }
     #activity { height: 2; margin: 1 1 0 1; padding: 0 0; background: #000000; color: #e6e6f0; }
     ChatFeed { height: 1fr; padding: 0 1; scrollbar-size: 1 1; background: #000000; }
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
@@ -693,21 +693,28 @@ class TermuxCoderApp(App):
     def _render_header(self) -> None:
         project = self._compact_header_value(
             self.agent.jail.root.name or str(self.agent.jail.root),
-            28,
+            22,
         )
-        provider = self._compact_header_value(self.agent.settings.provider, 18)
-        model = self._compact_header_value(self.agent.settings.model, 34)
+        provider = self._compact_header_value(self.agent.settings.provider, 16)
+        model = self._compact_header_value(self.agent.settings.model, 22)
         glyphs = current_glyphs()
         text = Text(justify="center")
-        text.append("nabdcode\n", style=f"bold {theme.TEAL}")
+        pixel = glyphs.block_full
+        logo_rows = (
+            f"{pixel * 3}   {pixel}  {pixel * 4}  {pixel * 4}  {pixel * 4}  {pixel * 4}  {pixel * 4}",
+            f"{pixel} {pixel}   {pixel}  {pixel}  {pixel}     {pixel}  {pixel}  {pixel}  {pixel}",
+            f"{pixel * 3}   {pixel}  {pixel * 4}  {pixel * 3}  {pixel}  {pixel * 3}  {pixel}  {pixel}",
+            f"{pixel} {pixel}   {pixel}  {pixel}  {pixel}     {pixel}  {pixel}  {pixel}  {pixel}",
+            f"{pixel} {pixel}   {pixel}  {pixel}  {pixel * 4}  {pixel * 4}  {pixel * 4}  {pixel * 4}",
+        )
+        for index, row in enumerate(logo_rows):
+            text.append(row + "\n", style="bold #f5f5f5" if index < 3 else theme.DIM)
         text.append(
-            f"{model}  {glyphs.separator}  {project}",
+            f"v1.4.0  {glyphs.separator}  {provider}  {glyphs.separator}  {model}\n",
             style=theme.DIM,
         )
-        text.append(
-            f"  {glyphs.separator}  {provider}",
-            style=theme.DIM,
-        )
+        text.append(f"{project}\n", style=theme.DIM)
+        text.append("FUTURE PULSE", style="bold #ffffff")
         self.query_one("#header", Static).update(text)
 
     def update_provider_health(self, payload: dict) -> None:
