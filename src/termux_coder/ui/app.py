@@ -43,7 +43,7 @@ class ChatFeed(VerticalScroll):
         self.selected_message = -1
 
     def register_message(self, widget, role: str, text: str = "") -> MessageRecord:
-        widget.add_class("conversation-message")
+        widget.add_class("conversation-message", f"-{role}")
         record = MessageRecord.create(len(self.message_records), role, text)
         self.message_records.append(record)
         self.rendered_widgets[record.message_id] = widget
@@ -84,7 +84,7 @@ class ChatFeed(VerticalScroll):
 
     def _fallback_render_record(self, record: MessageRecord):
         widget = Static(record.text)
-        widget.add_class("conversation-message")
+        widget.add_class("conversation-message", f"-{record.role}")
         self._mount_rendered_widget(widget, record)
         return widget
 
@@ -537,7 +537,7 @@ class TermuxCoderApp(App):
         else:
             widget = ExpandableStatic(expanded, collapsed)
             self.register_expandable(widget)
-        widget.add_class("conversation-message")
+        widget.add_class("conversation-message", f"-{record.role}")
         feed = self.query_one("#feed", ChatFeed)
         feed._mount_rendered_widget(widget, record)
         return widget
@@ -566,13 +566,14 @@ class TermuxCoderApp(App):
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
     #status { height: 2; margin: 0 1; padding: 0 0; background: #000000; color: #9ce3cb; }
     #activity.-hidden, #status.-hidden { display: none; }
+    ChatFeed .conversation-message.-user { background: #2b2b2b; padding: 0 1; }
     ChatFeed .conversation-message.-selected { background: #18283d; border-left: tall #6ca0ff; }
     #scroll-bottom { height: 1; margin: 0 1; display: none; min-width: 18; }
     #scroll-bottom.-visible { display: block; }
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
-    Input, Input:focus { height: 3; margin: 0 1; padding: 0 1; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #2b2b2b; color: #f2f2f2; }
+    Input, Input:focus { height: 3; margin: 0 1; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
     """
