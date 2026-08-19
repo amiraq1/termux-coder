@@ -64,7 +64,7 @@ _ALLOWED_TRANSITIONS: dict[TurnState, set[TurnState]] = {
     TurnState.IDLE:              {TurnState.PLANNING},
     TurnState.RESEARCHING:       {TurnState.RESEARCHING, TurnState.PLANNING, TurnState.AWAITING_APPROVAL,
                                   TurnState.EXECUTING, TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
-    TurnState.PLANNING:          {TurnState.PLANNING, TurnState.RESEARCHING, TurnState.ANALYZING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
+    TurnState.PLANNING:          {TurnState.PLANNING, TurnState.RESEARCHING, TurnState.ANALYZING, TurnState.PREVIEWING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
     TurnState.ANALYZING:         {TurnState.ANALYZING, TurnState.PREVIEWING, TurnState.PLANNING, TurnState.AWAITING_APPROVAL,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
@@ -1176,6 +1176,25 @@ class AgentOrchestrator:
 
                 # ── تقييم السياسة لكل استدعاء ────────────────
                 evaluated = [self._evaluate_call(c) for c in provider_resp.tool_calls]
+                previewed = [e for e in evaluated if e.preview is not None]
+                if previewed:
+                    self._transition(TurnState.PREVIEWING)
+                    self.audit.log(
+                        "preview_ready",
+                        turn_id=self._turn_id,
+                        call_ids=[e.call.call_id for e in previewed],
+                    )
+                    await self._on_event(
+                        "preview_ready",
+                        calls=[
+                            {
+                                "call_id": e.call.call_id,
+                                "tool": e.call.name,
+                                "path": e.preview.path if e.preview else None,
+                            }
+                            for e in previewed
+                        ],
+                    )
 
                 # Research Gate: البحث والجلب مرحلة معرفة مستقلة. لا نسمح
                 # بتعديل الملفات أو تنفيذ أوامر في نفس دفعة استدعاءات البحث.

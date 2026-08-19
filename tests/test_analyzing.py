@@ -122,3 +122,69 @@ def test_dynamic_scope_halts_before_provider_and_is_audited(tmp_path: Path):
         if item["event"] == "state_transition"
     ]
     assert ("analyzing", "idle") in transitions
+
+
+
+def test_preview_precedes_approval(tmp_path: Path):
+    from termux_coder.tools.preview import PatchPreview
+
+    audit = Audit()
+    provider = MockProvider(
+        [
+            MockResponse.with_tool(
+                "c1",
+                "apply_patch",
+                {"path": "target.py", "patch": "safe patch"},
+            )
+        ]
+    )
+    events = []
+
+    async def on_event(kind: str, **data):
+        events.append((kind, data))
+
+    async def reject(_kind: str, _payload: dict) -> bool:
+        return False
+
+    class Preview:
+        def generate(self, path: str, patch: str):
+            return PatchPreview(
+                path=path,
+                source_hash="a" * 64,
+                patch_hash="b" * 64,
+                result_hash="c" * 64,
+                additions=1,
+                removals=1,
+                diff="safe diff",
+            )
+
+    orchestrator = AgentOrchestrator(
+        provider=provider,
+        registry=ToolRegistry(),
+        policy_engine=PolicyEngine("ASK"),
+        audit=audit,
+        ctx=Ctx(),
+        max_rounds=1,
+        max_duration_s=10,
+        on_event=on_event,
+        approval_handler=reject,
+        preview_service=Preview(),
+        impact_analyzer=ImpactAnalyzer(tmp_path),
+    )
+    result = asyncio.run(
+        orchestrator.run_turn(
+            [{"role": "user", "content": "modify target.py"}]
+        )
+    )
+
+    assert result.state == TurnState.CANCELLED
+    kinds = [kind for kind, _ in events]
+    assert kinds.index("preview_ready") < kinds.index("approval_requested")
+    transitions = [
+        (item.get("from_state"), item.get("to_state"))
+        for item in audit.events
+        if item["event"] == "state_transition"
+    ]
+    assert ("planning", "previewing") in transitions
+    assert ("previewing", "awaiting_approval") in transitions
+    assert not any(item["event"] == "tool_executed" for item in audit.events)
