@@ -17,7 +17,7 @@
     termux-coder --workspace ~/my-project     # الواجهة الرئيسية: CLI
     termux-coder --tui --workspace ~/my-project  # TUI fallback مؤقت
 
-يعمل CLI افتراضيًا لتوفير واجهة مناسبة لشاشات Termux الصغيرة. يبقى Textual TUI متاحًا مؤقتًا عبر الخيار الصريح `--tui`. الخيار `--cli` القديم مخفي لكنه مدعوم للتوافق مع أوامر التشغيل السابقة.
+يعمل CLI افتراضيًا لتوفير واجهة مناسبة لشاشات Termux الصغيرة. يبقى Textual TUI متاحًا عبر الخيار الصريح `--tui`. يستخدم CLI وTUI مسار `AgentOrchestrator` الآمن افتراضيًا لضمان policy → preview → approval → mutation → verification. يمكن تفعيل المسار القديم للتوافق فقط عبر `TERMUX_CODER_LEGACY=1` أو `TERMUX_CODER_ORCHESTRATOR=0`. الخيار `--cli` القديم مخفي لكنه مدعوم للتوافق مع أوامر التشغيل السابقة.
 
 يُخفى التفكير والتدفق المرحلي افتراضيًا، ولا يتم عرض reasoning الخام أو JSON الخاص باستدعاءات الأدوات. لعرض مؤشرات مختصرة ومؤشر تحميل اختياري استخدم `--show-thinking`، وللإخفاء الصريح استخدم `--hide-thinking`:
 
@@ -49,7 +49,8 @@
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
-| TERMUX_CODER_ORCHESTRATOR | — | 0 |
+| TERMUX_CODER_ORCHESTRATOR | — | 1 |
+| TERMUX_CODER_LEGACY | — | 0; set to 1 for explicit legacy compatibility |
 | TERMUX_CODER_SINGLE_TOOL_CALLS | — | 1 |
 | TERMUX_CODER_WEB_SEARCH | — | 1 |
 | TERMUX_CODER_RESEARCH_AUTO | — | 1 |

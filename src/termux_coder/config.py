@@ -110,9 +110,13 @@ class Settings:
     lsp_enabled: bool = field(default_factory=lambda: _env("LSP", "1") == "1")
     lsp_wait: float = field(default_factory=lambda: float(_env("LSP_WAIT", "0.8")))
 
-    # تفعيل مسار Orchestrator تدريجيًا؛ المسار القديم هو الافتراضي الآمن.
+    # The orchestrator is the default safety path. Set LEGACY=1 or
+    # ORCHESTRATOR=0 only for explicit compatibility with the old path.
     orchestrator_enabled: bool = field(
-        default_factory=lambda: _env("ORCHESTRATOR", "0") == "1"
+        default_factory=lambda: (
+            _env("ORCHESTRATOR", "1") == "1"
+            and _env("LEGACY", "0") != "1"
+        )
     )
     verification_enabled: bool = field(
         default_factory=lambda: _env("VERIFICATION", "1") == "1"
