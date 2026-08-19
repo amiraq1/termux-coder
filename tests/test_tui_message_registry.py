@@ -32,3 +32,41 @@ def test_chat_feed_registers_only_conversation_messages():
             assert tool not in [widget for _role, widget in feed.message_widgets]
 
     asyncio.run(scenario())
+
+
+
+def test_chat_feed_moves_only_across_registered_messages():
+    async def scenario():
+        app = _Host()
+        async with app.run_test(size=(80, 20)):
+            feed = app.query_one("#feed", ChatFeed)
+            user = Static("user prompt")
+            assistant = Static("assistant answer")
+            tool = Static("tool output")
+            await feed.mount(user, assistant, tool)
+            feed.register_message(user, "user")
+            feed.register_message(assistant, "assistant")
+
+            feed.move_message(1)
+            assert feed.selected_message == 0
+            assert user.has_class("-selected")
+            feed.move_message(1)
+            assert feed.selected_message == 1
+            assert assistant.has_class("-selected")
+            feed.move_message(1)
+            assert feed.selected_message == 1
+            feed.move_message(-1)
+            assert feed.selected_message == 0
+            assert not tool.has_class("-selected")
+
+    asyncio.run(scenario())
+
+
+
+def test_message_navigation_bindings_do_not_replace_provider_shortcut():
+    from termux_coder.ui.app import TermuxCoderApp
+
+    bindings = {binding.key: binding.action for binding in TermuxCoderApp.BINDINGS}
+    assert bindings["ctrl+up"] == "previous_message"
+    assert bindings["ctrl+down"] == "next_message"
+    assert bindings["ctrl+a"] == "open_provider_picker"

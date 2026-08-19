@@ -33,9 +33,37 @@ class ChatFeed(VerticalScroll):
         self.owner = owner
         self.follow_output = True
         self.message_widgets = []
+        self.selected_message = -1
 
     def register_message(self, widget, role: str) -> None:
+        widget.add_class("conversation-message")
         self.message_widgets.append((role, widget))
+
+    def select_message(self, index: int) -> None:
+        if not self.message_widgets:
+            return
+        index = max(0, min(index, len(self.message_widgets) - 1))
+        self.selected_message = index
+        self.follow_output = False
+        for position, (_role, widget) in enumerate(self.message_widgets):
+            widget.set_class(position == index, "-selected")
+        self.scroll_to_widget(self.message_widgets[index][1], animate=False)
+        if self.owner is not None:
+            self.owner.set_scroll_button(True)
+
+    def move_message(self, direction: int) -> None:
+        if not self.message_widgets:
+            return
+        if self.selected_message < 0:
+            next_index = 0 if direction > 0 else len(self.message_widgets) - 1
+        else:
+            next_index = self.selected_message + direction
+        self.select_message(next_index)
+
+    def clear_message_selection(self) -> None:
+        self.selected_message = -1
+        for _role, widget in self.message_widgets:
+            widget.remove_class("-selected")
 
     def on_scroll(self, _event: events.Scroll) -> None:
         at_end = self.scroll_y >= self.max_scroll_y - 1
@@ -69,6 +97,12 @@ class PromptInput(Input):
         if event.key == "ctrl+a":
             event.stop()
             self.termux_app.action_open_provider_picker()
+        elif event.key == "ctrl+up":
+            event.stop()
+            self.termux_app.action_previous_message()
+        elif event.key == "ctrl+down":
+            event.stop()
+            self.termux_app.action_next_message()
 
 
 class TextualUI(AgentUI):
@@ -390,6 +424,8 @@ class TermuxCoderApp(App):
         Binding("ctrl+t", "toggle_tree", "tree", show=False),
         Binding("ctrl+p", "focus_prompt", "prompt", show=False),
         Binding("ctrl+a", "open_provider_picker", "provider", show=False),
+        Binding("ctrl+up", "previous_message", "previous message", show=False),
+        Binding("ctrl+down", "next_message", "next message", show=False),
     ]
     CSS = """
     Screen { background: #07090d; color: #e7e9ee; }
@@ -403,6 +439,7 @@ class TermuxCoderApp(App):
     #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
     #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
     #activity.-hidden, #status.-hidden { display: none; }
+    ChatFeed .conversation-message.-selected { background: #18283d; border-left: tall #6ca0ff; }
     #scroll-bottom { height: 1; margin: 0 1; display: none; min-width: 18; }
     #scroll-bottom.-visible { display: block; }
     #actions { height: 3; margin: 0 1; display: none; }
@@ -761,6 +798,12 @@ class TermuxCoderApp(App):
             return True
 
         return False
+
+    def action_previous_message(self) -> None:
+        self.query_one("#feed", ChatFeed).move_message(-1)
+
+    def action_next_message(self) -> None:
+        self.query_one("#feed", ChatFeed).move_message(1)
 
     def set_scroll_button(self, visible: bool) -> None:
         try:
