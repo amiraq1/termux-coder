@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "commit": "0c57193",
+  "measured_at": "2026-08-19T12:58:28.402711+00:00",
+  "samples": [
+    {
+      "catalog_size": 2000,
+      "moves": 250,
+      "query_size": 100000,
+      "navigation_ms": 877.331,
+      "rebuild_ms": 1378.442
+    },
+    {
+      "catalog_size": 2000,
+      "moves": 250,
+      "query_size": 100000,
+      "navigation_ms": 823.155,
+      "rebuild_ms": 1586.804
+    },
+    {
+      "catalog_size": 2000,
+      "moves": 250,
+      "query_size": 100000,
+      "navigation_ms": 817.498,
+      "rebuild_ms": 1450.006
+    },
+    {
+      "catalog_size": 2000,
+      "moves": 250,
+      "query_size": 100000,
+      "navigation_ms": 811.812,
+      "rebuild_ms": 1459.812
+    },
+    {
+      "catalog_size": 2000,
+      "moves": 250,
+      "query_size": 100000,
+      "navigation_ms": 740.279,
+      "rebuild_ms": 1564.178
+    }
+  ],
+  "summary": {
+    "navigation_ms_median": 817.498,
+    "rebuild_ms_median": 1459.812
+  }
+}
