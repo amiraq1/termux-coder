@@ -29,6 +29,9 @@ from .blocks import (
 
 
 class ChatFeed(VerticalScroll):
+    VIRTUALIZATION_THRESHOLD = 240
+    VIRTUAL_WINDOW = 160
+
     def __init__(self, owner=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.owner = owner
@@ -42,7 +45,63 @@ class ChatFeed(VerticalScroll):
         record = MessageRecord.create(len(self.message_records), role, text)
         self.message_records.append(record)
         self.rendered_widgets[record.message_id] = widget
+        self._prune_rendered_messages()
         return record
+
+    @property
+    def virtualization_enabled(self) -> bool:
+        return len(self.message_records) > self.VIRTUALIZATION_THRESHOLD
+
+    def _virtual_window(self) -> range:
+        if not self.message_records:
+            return range(0)
+        center = len(self.message_records) - 1
+        if not self.follow_output and self.selected_message >= 0:
+            center = self.selected_message
+        half = self.VIRTUAL_WINDOW // 2
+        start = max(0, center - half)
+        end = min(len(self.message_records), start + self.VIRTUAL_WINDOW)
+        if end - start < self.VIRTUAL_WINDOW:
+            start = max(0, end - self.VIRTUAL_WINDOW)
+        return range(start, end)
+
+    def _mount_rendered_widget(self, widget, record: MessageRecord) -> None:
+        anchor = next(
+            (
+                self.rendered_widgets[message_id]
+                for message_id in sorted(self.rendered_widgets)
+                if message_id > record.message_id
+            ),
+            None,
+        )
+        if anchor is None:
+            self.mount(widget)
+        else:
+            self.mount(widget, before=anchor)
+        self.rendered_widgets[record.message_id] = widget
+
+    def _fallback_render_record(self, record: MessageRecord):
+        widget = Static(record.text)
+        widget.add_class("conversation-message")
+        self._mount_rendered_widget(widget, record)
+        return widget
+
+    def _ensure_rendered(self, record: MessageRecord):
+        widget = self.rendered_widgets.get(record.message_id)
+        if widget is not None:
+            return widget
+        if self.owner is not None and hasattr(self.owner, "render_message_record"):
+            return self.owner.render_message_record(record)
+        return self._fallback_render_record(record)
+
+    def _prune_rendered_messages(self) -> None:
+        if not self.virtualization_enabled:
+            return
+        keep = set(self._virtual_window())
+        for message_id, widget in list(self.rendered_widgets.items()):
+            if message_id not in keep:
+                widget.remove()
+                self.rendered_widgets.pop(message_id, None)
 
     def select_message(self, index: int) -> None:
         if not self.message_records:
@@ -50,13 +109,14 @@ class ChatFeed(VerticalScroll):
         index = max(0, min(index, len(self.message_records) - 1))
         self.selected_message = index
         self.follow_output = False
+        self._prune_rendered_messages()
+        selected_record = self.message_records[index]
+        selected_widget = self._ensure_rendered(selected_record)
         for position, record in enumerate(self.message_records):
             widget = self.rendered_widgets.get(record.message_id)
             if widget is not None:
                 widget.set_class(position == index, "-selected")
-        widget = self.rendered_widgets.get(self.message_records[index].message_id)
-        if widget is not None:
-            self.scroll_to_widget(widget, animate=False)
+        self.scroll_to_widget(selected_widget, animate=False)
         if self.owner is not None:
             self.owner.set_scroll_button(True)
 
@@ -450,6 +510,19 @@ class TextualUI(AgentUI):
 
 class TermuxCoderApp(App):
     TITLE = "◈ agent"
+
+    def render_message_record(self, record: MessageRecord):
+        """Rebuild an evicted assistant message without changing its record."""
+        expanded, collapsed = markdown_fold_renderables("ASSISTANT", record.text, 4)
+        if collapsed is None:
+            widget = Static(expanded)
+        else:
+            widget = ExpandableStatic(expanded, collapsed)
+            self.register_expandable(widget)
+        widget.add_class("conversation-message")
+        feed = self.query_one("#feed", ChatFeed)
+        feed._mount_rendered_widget(widget, record)
+        return widget
     BINDINGS = [
         Binding("shift+tab", "toggle_mode", "mode", show=False),
         Binding("ctrl+o", "toggle_expand", "expand", show=False),
