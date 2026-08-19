@@ -209,6 +209,7 @@ async def apply_patch(args: ApplyPatchArgs, ctx) -> str:
         {
             "path": rel,
             "backup": str(backup_path) if backup_path else None,
+            "created": backup_path is None,
             "old_hash": _sha256(old) if old else None,
             "new_hash": new_hash,
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -321,36 +322,60 @@ async def rollback_patch(args: RollbackPatchArgs, ctx) -> str:
     if patch_record is None:
         return f"rollback error: no patch record found for {rel}"
 
+    created = bool(patch_record.get("created"))
     backup_str = patch_record.get("backup")
-    if not backup_str:
-        return f"rollback error: no backup available for {rel}"
-
-    backup_path = Path(backup_str)
-    if not backup_path.exists():
-        return f"rollback error: backup file missing: {backup_path}"
+    backup_path = Path(backup_str) if backup_str else None
+    if not created:
+        if backup_path is None:
+            return f"rollback error: no backup available for {rel}"
+        if not backup_path.exists():
+            return f"rollback error: backup file missing: {backup_path}"
 
     # تأكيد المستخدم
     approved = await ctx.ui.request_approval(
         "rollback",
-        {"path": rel, "backup": str(backup_path)},
+        {
+            "path": rel,
+            "backup": str(backup_path) if backup_path else None,
+            "created": created,
+        },
     )
     if not approved:
         return "user rejected rollback"
 
     try:
-        old_content = backup_path.read_text(encoding="utf-8")
-        original_mode = path.stat().st_mode if path.exists() else None
-        _atomic_write(path, old_content, original_mode=original_mode)
+        if created:
+            if path.exists():
+                if not path.is_file():
+                    return f"rollback error: created path is not a regular file: {rel}"
+                path.unlink()
+            ctx.state.read_files.discard(rel)
+            ctx.state.read_hashes.pop(rel, None)
+            source = "created_file_removed"
+            restored_hash = None
+        else:
+            old_content = backup_path.read_text(encoding="utf-8")
+            original_mode = path.stat().st_mode if path.exists() else None
+            _atomic_write(path, old_content, original_mode=original_mode)
+            ctx.state.read_hashes[rel] = _sha256(old_content)
+            source = "backup_restored"
+            restored_hash = _sha256(old_content)[:16]
     except Exception as exc:
         return f"rollback error: {exc}"
 
-    # تحديث الـ hash
-    ctx.state.read_hashes[rel] = _sha256(old_content)
+    try:
+        ctx.state.applied_patches.remove(patch_record)
+    except ValueError:
+        pass
     ctx.audit.log(
         "rollback_applied",
         path=rel,
-        backup=str(backup_path),
-        hash=_sha256(old_content)[:16],
+        backup=str(backup_path) if backup_path else None,
+        created=created,
+        source=source,
+        hash=restored_hash,
     )
 
+    if created:
+        return f"rollback removed created file {rel}"
     return f"rollback applied to {rel} from {backup_path.name}"
