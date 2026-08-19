@@ -1,4 +1,4 @@
-# ◈ agent — Termux Coder v1.0
+# ◈ agent — Termux Coder v1.4.0
 
 وكيل برمجة مستقل (Autonomous Coding Agent) يعمل داخل Termux فقط،
 مستوحى من OpenCode/Aider، مبني على 7 طبقات مرقّمة ومختبرة.
@@ -17,7 +17,7 @@
     termux-coder --workspace ~/my-project     # الواجهة الرئيسية: CLI
     termux-coder --tui --workspace ~/my-project  # TUI fallback مؤقت
 
-يعمل CLI افتراضيًا لتوفير واجهة مناسبة لشاشات Termux الصغيرة. يبقى Textual TUI متاحًا عبر الخيار الصريح `--tui`. يستخدم CLI وTUI مسار `AgentOrchestrator` الآمن افتراضيًا لضمان policy → preview → approval → mutation → verification. يمكن تفعيل المسار القديم للتوافق فقط عبر `TERMUX_CODER_LEGACY=1` أو `TERMUX_CODER_ORCHESTRATOR=0`. الخيار `--cli` القديم مخفي لكنه مدعوم للتوافق مع أوامر التشغيل السابقة.
+يعمل CLI افتراضيًا لتوفير واجهة مناسبة لشاشات Termux الصغيرة. يبقى Textual TUI متاحًا عبر الخيار الصريح `--tui`. يستخدم CLI وTUI مسار `AgentOrchestrator` الآمن افتراضيًا لضمان policy → preview → approval → mutation → verification. يمكن تفعيل المسار القديم للتوافق فقط عبر `TERMUX_CODER_LEGACY=1` أو `TERMUX_CODER_ORCHESTRATOR=0`. الخيار `--cli` القديم مخفي لكنه مدعوم للتوافق مع أوامر التشغيل السابقة. المشروع مرخص وفق MIT License، وتُعلن الاعتماديات المباشرة مع حدود توافق عليا في `pyproject.toml`.
 
 يُخفى التفكير والتدفق المرحلي افتراضيًا، ولا يتم عرض reasoning الخام أو JSON الخاص باستدعاءات الأدوات. لعرض مؤشرات مختصرة ومؤشر تحميل اختياري استخدم `--show-thinking`، وللإخفاء الصريح استخدم `--hide-thinking`:
 
