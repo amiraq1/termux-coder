@@ -677,3 +677,19 @@ def test_suppressed_empty_tool_call_retries_without_tools():
         assert [m["role"] for m in messages] == ["user", "assistant"]
 
     asyncio.run(_run())
+
+
+    def test_planning_to_analyzing_to_previewing_to_approval_allowed(self):
+        orch, _, _ = build_orchestrator([])
+        orch._transition(TurnState.PLANNING)
+        orch._transition(TurnState.ANALYZING)
+        orch._transition(TurnState.PREVIEWING)
+        orch._transition(TurnState.AWAITING_APPROVAL)
+        assert orch.state == TurnState.AWAITING_APPROVAL
+
+    def test_analyzing_can_halt_to_idle(self):
+        orch, _, _ = build_orchestrator([])
+        orch._transition(TurnState.PLANNING)
+        orch._transition(TurnState.ANALYZING)
+        orch._transition(TurnState.IDLE)
+        assert orch.state == TurnState.IDLE

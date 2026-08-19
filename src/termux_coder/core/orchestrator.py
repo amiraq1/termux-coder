@@ -49,6 +49,8 @@ class TurnState(str, Enum):
     IDLE              = "idle"
     RESEARCHING       = "researching"
     PLANNING          = "planning"
+    ANALYZING         = "analyzing"
+    PREVIEWING        = "previewing"
     AWAITING_APPROVAL = "awaiting_approval"
     EXECUTING         = "executing"
     VERIFYING         = "verifying"
@@ -61,9 +63,13 @@ _ALLOWED_TRANSITIONS: dict[TurnState, set[TurnState]] = {
     TurnState.IDLE:              {TurnState.PLANNING},
     TurnState.RESEARCHING:       {TurnState.RESEARCHING, TurnState.PLANNING, TurnState.AWAITING_APPROVAL,
                                   TurnState.EXECUTING, TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
-    TurnState.PLANNING:          {TurnState.PLANNING, TurnState.RESEARCHING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
+    TurnState.PLANNING:          {TurnState.PLANNING, TurnState.RESEARCHING, TurnState.ANALYZING, TurnState.AWAITING_APPROVAL, TurnState.EXECUTING,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
-    TurnState.AWAITING_APPROVAL: {TurnState.RESEARCHING, TurnState.EXECUTING, TurnState.CANCELLED, TurnState.FAILED},
+    TurnState.ANALYZING:         {TurnState.ANALYZING, TurnState.PREVIEWING, TurnState.PLANNING, TurnState.AWAITING_APPROVAL,
+                                  TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
+    TurnState.PREVIEWING:        {TurnState.PREVIEWING, TurnState.AWAITING_APPROVAL, TurnState.PLANNING,
+                                  TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
+    TurnState.AWAITING_APPROVAL: {TurnState.RESEARCHING, TurnState.EXECUTING, TurnState.PLANNING, TurnState.CANCELLED, TurnState.FAILED},
     TurnState.EXECUTING:         {TurnState.EXECUTING, TurnState.RESEARCHING, TurnState.PLANNING, TurnState.VERIFYING,
                                   TurnState.IDLE, TurnState.CANCELLED, TurnState.FAILED},
     TurnState.VERIFYING:         {TurnState.PLANNING, TurnState.IDLE,

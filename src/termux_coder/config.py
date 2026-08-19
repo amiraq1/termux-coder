@@ -122,6 +122,9 @@ class Settings:
     software_engineer_mode: bool = field(
         default_factory=lambda: _env("SOFTWARE_ENGINEER", "1") == "1"
     )
+    analyzing_enabled: bool = field(
+        default_factory=lambda: _env("ANALYZING", "0") == "1"
+    )
     verification_timeout_s: float = field(
         default_factory=lambda: float(_env("VERIFICATION_TIMEOUT", "30"))
     )
