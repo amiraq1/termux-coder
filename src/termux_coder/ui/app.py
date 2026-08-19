@@ -304,10 +304,8 @@ class TextualUI(AgentUI):
             self._buf = []
             self._t0 = time.time()
             self.app.set_busy(True)
-            self.app.begin_answer_animation()
 
         elif kind == "assistant_done":
-            self.app.end_answer_animation()
             if self._stream_widget is not None:
                 self._flush_stream()
                 text = "".join(self._buf).strip()
@@ -490,7 +488,6 @@ class TextualUI(AgentUI):
             self._put(Static(Text("stopped: too many tool rounds", style="yellow")))
 
         elif kind == "turn_end":
-            self.app.end_answer_animation()
             self.app.set_phase("turn_end", {})
             self.app.set_busy(False)
 
@@ -564,9 +561,6 @@ class TermuxCoderApp(App):
     #tree.-visible { display: block; }
     #maincol { width: 1fr; min-width: 0; }
     #header { display: none; }
-    #agent-animation { display: none; height: 1fr; align: center middle; content-align: center middle; background: #000000; color: #4db6ac; text-style: bold; }
-    #agent-animation.-visible { display: block; }
-    #maincol.-answer-quiet #header, #maincol.-answer-quiet #activity, #maincol.-answer-quiet #feed, #maincol.-answer-quiet #status, #maincol.-answer-quiet #scroll-bottom, #maincol.-answer-quiet #actions, #maincol.-answer-quiet #prompt { display: none; }
     #activity { height: 2; margin: 1 1 0 1; padding: 0 0; background: #000000; color: #e6e6f0; }
     ChatFeed { height: 1fr; padding: 0 1; scrollbar-size: 1 1; background: #000000; }
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
@@ -601,15 +595,12 @@ class TermuxCoderApp(App):
         self._last_prompt = ""
         self._last_answer_text = ""
         self._last_answer_widget = None
-        self._answer_quiet = False
-        self._animation_frame = 0
 
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield DirectoryTree(str(self.agent.jail.root), id="tree")
             with Vertical(id="maincol"):
                 yield Static(id="header")
-                yield Static(id="agent-animation")
                 yield Static(id="activity")
                 yield ChatFeed(self, id="feed")
                 yield Static(id="status")
@@ -638,34 +629,6 @@ class TermuxCoderApp(App):
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
         self._render_status()
-
-    @property
-    def answer_quiet(self) -> bool:
-        return self._answer_quiet
-
-    def _render_agent_animation(self) -> None:
-        if not self._answer_quiet:
-            return
-        glyphs = current_glyphs()
-        colors = (theme.TEAL, theme.LAVENDER, theme.WHITE, theme.TEAL)
-        color = colors[self._animation_frame % len(colors)]
-        self.query_one("#agent-animation", Static).update(
-            Text(f"{glyphs.diamond} agent", style=f"bold {color}")
-        )
-
-    def begin_answer_animation(self) -> None:
-        self._answer_quiet = True
-        self._animation_frame = 0
-        maincol = self.query_one("#maincol")
-        maincol.add_class("-answer-quiet")
-        self.query_one("#agent-animation").add_class("-visible")
-        self._render_agent_animation()
-
-    def end_answer_animation(self) -> None:
-        self._answer_quiet = False
-        maincol = self.query_one("#maincol")
-        maincol.remove_class("-answer-quiet")
-        self.query_one("#agent-animation").remove_class("-visible")
 
     def set_phase(self, kind: str, payload: dict) -> None:
         labels = {
@@ -781,10 +744,7 @@ class TermuxCoderApp(App):
             self._expandables.pop(0)
 
     def _tick(self) -> None:
-        if self._answer_quiet:
-            self._animation_frame += 1
-            self._render_agent_animation()
-        elif self._busy:
+        if self._busy:
             self._verb += 1
             self._render_status()
 
@@ -1087,6 +1047,4 @@ class TermuxCoderApp(App):
             feed = self.query_one("#feed", ChatFeed)
             feed.mount(Static(Text(msg, style=theme.RED)))
             feed.scroll_end(animate=False)
-        finally:
-            self.end_answer_animation()
         self.query_one(DirectoryTree).reload()
