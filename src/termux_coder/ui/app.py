@@ -209,7 +209,7 @@ class PromptInput(Input):
         elif event.key == "ctrl+end":
             event.stop()
             self.termux_app.action_last_message()
-        elif event.key == "ctrl+m":
+        elif event.key in {"ctrl+m", "alt+a"}:
             event.stop()
             self.termux_app.action_toggle_context_actions()
         elif event.key == "ctrl+shift+c":
@@ -558,6 +558,7 @@ class TermuxCoderApp(App):
         Binding("ctrl+home", "first_message", "first message", show=False),
         Binding("ctrl+end", "last_message", "last message", show=False),
         Binding("ctrl+m", "toggle_context_actions", "actions", show=False),
+        Binding("alt+a", "toggle_context_actions", "actions", show=False),
         Binding("ctrl+shift+c", "copy_last_answer", "copy answer", show=False),
     ]
     CSS = """
@@ -908,6 +909,10 @@ class TermuxCoderApp(App):
         from ..cli import build_agent
 
         feed = self.query_one("#feed", ChatFeed)
+
+        if text == "/actions":
+            self.action_toggle_context_actions()
+            return True
 
         if text == "/sessions":
             rows = [

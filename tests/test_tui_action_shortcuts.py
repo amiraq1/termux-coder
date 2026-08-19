@@ -22,9 +22,12 @@ def test_prompt_input_routes_context_actions_shortcuts():
 
     toggle_event = _Event("ctrl+m")
     prompt.on_key(toggle_event)
+    alternate_toggle_event = _Event("alt+a")
+    prompt.on_key(alternate_toggle_event)
     copy_event = _Event("ctrl+shift+c")
     prompt.on_key(copy_event)
 
-    assert calls == ["toggle", "copy"]
+    assert calls == ["toggle", "toggle", "copy"]
     assert toggle_event.stopped is True
+    assert alternate_toggle_event.stopped is True
     assert copy_event.stopped is True
