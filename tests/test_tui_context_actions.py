@@ -18,6 +18,7 @@ def test_context_action_bar_exposes_keyboard_and_touch_actions():
         async with app.run_test(size=(80, 20)):
             actions = app.query_one("#actions")
             assert actions.query_one("#action-view").label.plain == "View details"
+            assert actions.query_one("#action-copy").label.plain == "Copy answer"
             assert actions.query_one("#action-retry").label.plain == "Retry"
             assert actions.query_one("#action-close").label.plain == "Close"
 

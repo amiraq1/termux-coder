@@ -14,6 +14,7 @@ from textual.css.query import NoMatches
 from .. import theme
 from ..core.agent import Agent
 from .approval import ApprovalScreen
+from .clipboard import copy_text
 from .base import AgentUI
 from .blocks import (
     ExpandableStatic,
@@ -34,6 +35,7 @@ class ContextActionBar(Horizontal):
 
     def compose(self) -> ComposeResult:
         yield Button("View details", id="action-view")
+        yield Button("Copy answer", id="action-copy")
         yield Button("Retry", id="action-retry")
         yield Button("Close", id="action-close")
 
@@ -745,6 +747,18 @@ class TermuxCoderApp(App):
             widget = self._last_answer_widget
             if isinstance(widget, ExpandableStatic):
                 widget.toggle()
+        elif event.button.id == "action-copy":
+            result = copy_text(self._last_answer_text)
+            if result.ok:
+                message = "Answer copied to clipboard."
+                if result.redacted:
+                    message += " Sensitive-looking values were redacted."
+                self.notify(message, severity="information")
+            else:
+                self.notify(
+                    "Clipboard unavailable. Install Termux:API or xclip.",
+                    severity="warning",
+                )
         elif event.button.id == "action-retry":
             prompt = self._last_prompt
             self.hide_context_actions()
