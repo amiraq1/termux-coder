@@ -240,3 +240,29 @@ async def test_g_mixed_response(base_orchestrator):
     last_saved_msg = messages[-1]
     assert last_saved_msg["role"] == "assistant"
     assert "tool_calls" not in last_saved_msg
+
+
+@pytest.mark.anyio
+async def test_h_pass8_plain_arithmetic_skips_workspace_tools(base_orchestrator):
+    orchestrator, provider, audit = base_orchestrator
+    provider.chat_stream = AsyncMock(return_value={
+        "role": "assistant",
+        "content": "The result of 1+1 is 2.",
+        "tool_calls": [
+            {"id": "call_read", "function": {"name": "read_file", "arguments": "{\"path\": \"1+1\"}"}},
+            {"id": "call_search", "function": {"name": "web_search", "arguments": "{\"query\": \"1+1\"}"}},
+        ],
+    })
+
+    result = await orchestrator.run_turn([{"role": "user", "content": "what is 1+1"}])
+
+    assert result.error is None
+    assert result.state == TurnState.IDLE
+    assert result.final_text == "The result of 1+1 is 2."
+    assert result.tool_results == []
+    assert provider.chat_stream.await_count == 1
+
+    with open(audit.path, "r") as f:
+        events = [json.loads(line) for line in f if line.strip()]
+    suppressed = [event for event in events if event.get("event") == "tool_suppressed"]
+    assert {event["tool"] for event in suppressed} == {"read_file", "web_search"}
