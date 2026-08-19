@@ -13,6 +13,13 @@ def _apply_show_thinking_override(settings, cli_value: bool | None):
     return settings
 
 
+def _apply_software_engineer_override(settings, cli_value: bool | None):
+    """Apply an explicit coding-specialization value over the environment default."""
+    if cli_value is not None:
+        settings.software_engineer_mode = cli_value
+    return settings
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="termux-coder")
     parser.add_argument("command", nargs="?", choices=["run", "doctor", "traces", "replay"], default="run")
@@ -38,6 +45,20 @@ def main() -> None:
         action="store_false",
         help="hide progress indicators and the loading spinner (default)",
     )
+    engineering_group = parser.add_mutually_exclusive_group()
+    engineering_group.add_argument(
+        "--software-engineer",
+        dest="software_engineer",
+        action="store_true",
+        default=None,
+        help="use the professional software-engineering workflow",
+    )
+    engineering_group.add_argument(
+        "--general",
+        dest="software_engineer",
+        action="store_false",
+        help="use the general-purpose workflow",
+    )
     parser.add_argument("--version", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output for doctor")
     parser.add_argument("--verbose", action="store_true", help="show doctor check details")
@@ -52,6 +73,7 @@ def main() -> None:
     if args.providers_config is not None:
         settings.providers_config_path = args.providers_config
     _apply_show_thinking_override(settings, args.show_thinking)
+    _apply_software_engineer_override(settings, args.software_engineer)
 
     if args.version:
         from . import __version__
