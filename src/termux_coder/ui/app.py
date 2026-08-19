@@ -314,12 +314,12 @@ class TextualUI(AgentUI):
                 self._buf = []
                 stream_widget.remove()
                 if text:
-                    widget = self._put_markdown_folded("ASSISTANT", text, 4)
+                    widget = self._put_markdown_folded(f"{current_glyphs().diamond} agent", text, 4)
                     self.app.show_context_actions(text, widget)
             else:
                 text = "".join(self._buf).strip()
                 if text:
-                    widget = self._put_markdown_folded("ASSISTANT", text, 4)
+                    widget = self._put_markdown_folded(f"{current_glyphs().diamond} agent", text, 4)
                     self.app.show_context_actions(text, widget)
                 self._buf = []
 
@@ -531,7 +531,7 @@ class TermuxCoderApp(App):
 
     def render_message_record(self, record: MessageRecord):
         """Rebuild an evicted assistant message without changing its record."""
-        expanded, collapsed = markdown_fold_renderables("ASSISTANT", record.text, 4)
+        expanded, collapsed = markdown_fold_renderables(f"{current_glyphs().diamond} agent", record.text, 4)
         if collapsed is None:
             widget = Static(expanded)
         else:
