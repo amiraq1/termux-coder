@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "commit": "000c700",
+  "measured_at": "2026-08-19T12:14:34.546531+00:00",
+  "summary": {
+    "navigation_ms_median": 343.025,
+    "rebuild_ms_median": 881.898
+  },
+  "scenario": {
+    "catalog_size": 2000,
+    "moves": 250,
+    "query_size": 100000,
+    "samples": 3
+  }
+}
