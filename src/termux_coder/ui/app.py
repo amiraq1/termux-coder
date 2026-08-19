@@ -32,6 +32,7 @@ from .blocks import (
 class ChatFeed(VerticalScroll):
     VIRTUALIZATION_THRESHOLD = 240
     VIRTUAL_WINDOW = 160
+    VIRTUAL_RENDER_BATCH = 24
 
     def __init__(self, owner=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -104,6 +105,22 @@ class ChatFeed(VerticalScroll):
                 widget.remove()
                 self.rendered_widgets.pop(message_id, None)
 
+    def _ensure_virtual_window_rendered(self) -> None:
+        if not self.virtualization_enabled:
+            return
+        window = self._virtual_window()
+        if len(window) <= self.VIRTUAL_RENDER_BATCH:
+            render_indices = window
+        else:
+            center = self.selected_message if self.selected_message >= 0 else window.stop - 1
+            half = self.VIRTUAL_RENDER_BATCH // 2
+            start = max(window.start, center - half)
+            stop = min(window.stop, start + self.VIRTUAL_RENDER_BATCH)
+            render_indices = range(start, stop)
+        for index in render_indices:
+            record = self.message_records[index]
+            self._ensure_rendered(record)
+
     def select_message(self, index: int) -> None:
         if not self.message_records:
             return
@@ -111,6 +128,7 @@ class ChatFeed(VerticalScroll):
         self.selected_message = index
         self.follow_output = False
         self._prune_rendered_messages()
+        self._ensure_virtual_window_rendered()
         selected_record = self.message_records[index]
         selected_widget = self._ensure_rendered(selected_record)
         for position, record in enumerate(self.message_records):
