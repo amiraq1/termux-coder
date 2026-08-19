@@ -6,6 +6,7 @@ import time
 from . import logo
 from openai import AuthenticationError
 from .config import Settings
+from .core.detail import wants_detailed_report
 from .core.agent import Agent
 from .core.registry import ToolRegistry
 from .core.session import SessionStore
@@ -201,7 +202,13 @@ def _format_web_results(raw: str | list) -> str:
     return str(raw)[:500]
 
 
-def _format_final_answer(agent, turn_result, *, show_thinking: bool = False) -> str:
+def _format_final_answer(
+    agent,
+    turn_result,
+    *,
+    show_thinking: bool = False,
+    detailed: bool = False,
+) -> str:
     """Return the answer text to print after a completed orchestrated turn.
 
     Invariants
@@ -274,9 +281,9 @@ def _format_final_answer(agent, turn_result, *, show_thinking: bool = False) -> 
         # block shown, preventing a duplicate model restatement. Diagnostic
         # mode may append substantive model context after the data.
         data_block = "\n\n".join(read_outputs)
-        if not show_thinking:
+        if not show_thinking and not detailed:
             return data_block
-        if final_text and len(final_text) > 60:
+        if final_text and (detailed or len(final_text) > 60):
             return data_block + "\n\n" + final_text
         return data_block
 
@@ -357,6 +364,7 @@ async def cli_main(settings: Settings) -> None:
             continue
 
         started = time.monotonic()
+        detailed = wants_detailed_report(text)
         local_reply = _friendly_reply(text)
         if local_reply is not None:
             print()
@@ -371,7 +379,10 @@ async def cli_main(settings: Settings) -> None:
             turn_state = getattr(getattr(turn_result, "state", None), "value", None)
             if turn_result is None or turn_state == "idle":
                 final_text = _format_final_answer(
-                    agent, turn_result, show_thinking=settings.show_thinking
+                    agent,
+                    turn_result,
+                    show_thinking=settings.show_thinking,
+                    detailed=detailed,
                 )
                 if final_text:
                     print()
