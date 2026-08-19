@@ -8,7 +8,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import DirectoryTree, Footer, Input, Static
+from textual.widgets import Button, DirectoryTree, Footer, Input, Static
 from textual.css.query import NoMatches
 
 from .. import theme
@@ -27,6 +27,15 @@ from .blocks import (
 
 class ChatFeed(VerticalScroll):
     pass
+
+
+class ContextActionBar(Horizontal):
+    """Keyboard- and touch-friendly actions for the latest assistant answer."""
+
+    def compose(self) -> ComposeResult:
+        yield Button("View details", id="action-view")
+        yield Button("Retry", id="action-retry")
+        yield Button("Close", id="action-close")
 
 
 class WelcomeCard(Static):
@@ -62,14 +71,16 @@ class TextualUI(AgentUI):
         feed.mount(widget)
         feed.scroll_end(animate=False)
 
-    def _put_folded(self, label: str, content: str, preview_lines: int, content_style: str | None = None) -> None:
+    def _put_folded(self, label: str, content: str, preview_lines: int, content_style: str | None = None):
         expanded, collapsed = fold_renderables(label, content, preview_lines, content_style)
         if collapsed is None:
-            self._put(Static(expanded))
-            return
+            widget = Static(expanded)
+            self._put(widget)
+            return widget
         widget = ExpandableStatic(expanded, collapsed)
         self.app.register_expandable(widget)
         self._put(widget)
+        return widget
 
     def _put_diff(self, diff: str) -> None:
         lines = diff.splitlines()
@@ -125,11 +136,13 @@ class TextualUI(AgentUI):
                 self._buf = []
                 stream_widget.remove()
                 if text:
-                    self._put_folded("ASSISTANT", text, 4)
+                    widget = self._put_folded("ASSISTANT", text, 4)
+                    self.app.show_context_actions(text, widget)
             else:
                 text = "".join(self._buf).strip()
                 if text:
-                    self._put_folded("ASSISTANT", text, 4)
+                    widget = self._put_folded("ASSISTANT", text, 4)
+                    self.app.show_context_actions(text, widget)
                 self._buf = []
 
         elif kind in ("tool_recovered", "patch_recovered"):
@@ -358,6 +371,9 @@ class TermuxCoderApp(App):
     #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
     #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
     #activity.-hidden, #status.-hidden { display: none; }
+    #actions { height: 3; margin: 0 1; display: none; }
+    #actions.-visible { display: block; }
+    #actions Button { min-width: 16; margin: 0 1; }
     Input { margin: 0 1; border: tall #456fa8; background: #11151c; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
@@ -377,6 +393,9 @@ class TermuxCoderApp(App):
         self._phase = "READY"
         self._activity = "waiting for your request"
         self._provider_health = {"state": "unknown", "latency_ms": None}
+        self._last_prompt = ""
+        self._last_answer_text = ""
+        self._last_answer_widget = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -386,6 +405,7 @@ class TermuxCoderApp(App):
                 yield ChatFeed(id="feed")
                 yield Static(id="activity")
                 yield Static(id="status")
+                yield Horizontal(id="actions")
                 yield PromptInput(self, id="prompt", placeholder="Ask your question…")
 
     def on_mount(self) -> None:
@@ -644,6 +664,8 @@ class TermuxCoderApp(App):
         event.input.clear()
         if not text:
             return
+        self._last_prompt = text
+        self.hide_context_actions()
         if text.startswith("/"):
             if self._handle_slash(text):
                 return
@@ -702,6 +724,34 @@ class TermuxCoderApp(App):
             return True
 
         return False
+
+    def show_context_actions(self, answer: str, widget) -> None:
+        actions = self.query_one("#actions", Horizontal)
+        actions.remove_children()
+        actions.mount(ContextActionBar())
+        actions.add_class("-visible")
+        self._last_answer_text = answer
+        self._last_answer_widget = widget
+        view_button = actions.query_one("#action-view", Button)
+        view_button.disabled = not isinstance(widget, ExpandableStatic)
+
+    def hide_context_actions(self) -> None:
+        actions = self.query_one("#actions", Horizontal)
+        actions.remove_children()
+        actions.remove_class("-visible")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "action-view":
+            widget = self._last_answer_widget
+            if isinstance(widget, ExpandableStatic):
+                widget.toggle()
+        elif event.button.id == "action-retry":
+            prompt = self._last_prompt
+            self.hide_context_actions()
+            if prompt:
+                self.run_agent(prompt)
+        elif event.button.id == "action-close":
+            self.hide_context_actions()
 
     @work(exclusive=True)
     async def run_agent(self, text: str) -> None:
