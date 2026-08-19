@@ -1,0 +1,57 @@
+name: TUI performance monitor
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/termux_coder/ui/**"
+      - "tests/test_tui_*performance.py"
+      - "scripts/tui_performance_monitor.py"
+      - "benchmarks/tui_baseline.github.json"
+      - "benchmarks/tui_baseline.termux.json"
+      - ".github/workflows/tui-performance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  tui-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e . pytest
+
+      - name: Measure TUI performance
+        env:
+          PYTHONPATH: src
+        run: >-
+          python scripts/tui_performance_monitor.py
+          --baseline benchmarks/tui_baseline.github.json
+          --output artifacts/tui-performance.json
+          --samples 3
+          --catalog-size 2000
+          --moves 250
+          --query-size 100000
+          --threshold 0.25
+          --commit "${GITHUB_SHA}"
+
+      - name: Upload performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-performance-${{ github.sha }}
+          path: artifacts/tui-performance.json
+          if-no-files-found: warn
+          retention-days: 30
