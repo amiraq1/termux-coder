@@ -551,6 +551,8 @@ class TermuxCoderApp(App):
         Binding("ctrl+down", "next_message", "next message", show=False),
         Binding("ctrl+home", "first_message", "first message", show=False),
         Binding("ctrl+end", "last_message", "last message", show=False),
+        Binding("ctrl+space", "toggle_context_actions", "actions", show=False),
+        Binding("ctrl+shift+c", "copy_last_answer", "copy answer", show=False),
     ]
     CSS = """
     Screen { background: #000000; color: #e6e6f0; }
@@ -966,20 +968,46 @@ class TermuxCoderApp(App):
         feed.scroll_end(animate=False)
         self.set_scroll_button(False)
 
-    def show_context_actions(self, answer: str, widget) -> None:
+    def _mount_context_actions(self) -> None:
         actions = self.query_one("#actions", Horizontal)
         actions.remove_children()
         actions.mount(ContextActionBar())
         actions.add_class("-visible")
+        view_button = actions.query_one("#action-view", Button)
+        view_button.disabled = not isinstance(self._last_answer_widget, ExpandableStatic)
+
+    def show_context_actions(self, answer: str, widget) -> None:
         self._last_answer_text = answer
         self._last_answer_widget = widget
-        view_button = actions.query_one("#action-view", Button)
-        view_button.disabled = not isinstance(widget, ExpandableStatic)
+        self.hide_context_actions()
+
+    def action_toggle_context_actions(self) -> None:
+        actions = self.query_one("#actions", Horizontal)
+        if actions.has_class("-visible"):
+            self.hide_context_actions()
+        elif self._last_answer_text:
+            self._mount_context_actions()
 
     def hide_context_actions(self) -> None:
         actions = self.query_one("#actions", Horizontal)
         actions.remove_children()
         actions.remove_class("-visible")
+
+    def action_copy_last_answer(self) -> None:
+        if not self._last_answer_text:
+            self.notify("No answer available to copy.", severity="warning")
+            return
+        result = copy_text(self._last_answer_text)
+        if result.ok:
+            message = "Answer copied to clipboard."
+            if result.redacted:
+                message += " Sensitive-looking values were redacted."
+            self.notify(message, severity="information")
+        else:
+            self.notify(
+                "Clipboard unavailable. Install Termux:API or xclip.",
+                severity="warning",
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scroll-bottom":
@@ -989,17 +1017,7 @@ class TermuxCoderApp(App):
             if isinstance(widget, ExpandableStatic):
                 widget.toggle()
         elif event.button.id == "action-copy":
-            result = copy_text(self._last_answer_text)
-            if result.ok:
-                message = "Answer copied to clipboard."
-                if result.redacted:
-                    message += " Sensitive-looking values were redacted."
-                self.notify(message, severity="information")
-            else:
-                self.notify(
-                    "Clipboard unavailable. Install Termux:API or xclip.",
-                    severity="warning",
-                )
+            self.action_copy_last_answer()
         elif event.button.id == "action-retry":
             prompt = self._last_prompt
             self.hide_context_actions()
