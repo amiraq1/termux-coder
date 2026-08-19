@@ -12,7 +12,34 @@ RESET = "\x1b[0m"
 DIM = "\x1b[2m"
 TEAL = "\x1b[38;2;77;182;172m"
 TEALB = "\x1b[1;38;2;77;182;172m"
+GREEN = "\x1b[38;2;92;214;138m"
+GREENB = "\x1b[1;38;2;92;214;138m"
+YELLOW = "\x1b[38;2;245;197;66m"
+ORANGE = "\x1b[38;2;245;166;35m"
+RED = "\x1b[38;2;248;113;113m"
+BLUE = "\x1b[38;2;115;170;255m"
+PURPLE = "\x1b[38;2;199;166;255m"
 DIAMOND = "◈"
+
+_ACTION_COLORS = {
+    "working": TEAL,
+    "answer": GREEN,
+    "ready": GREENB,
+    "success": GREEN,
+    "tool done": GREEN,
+    "verify": BLUE,
+    "route": PURPLE,
+    "map": BLUE,
+    "tool": BLUE,
+    "lsp": BLUE,
+    "approval": YELLOW,
+    "checking": YELLOW,
+    "recovered": ORANGE,
+    "rollback": RED,
+    "denied": RED,
+    "error": RED,
+    "stopped": RED,
+}
 
 BIG_ART = [
     " █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
@@ -47,8 +74,23 @@ def print_banner() -> None:
     print()
 
 
+def action_color(action: str) -> str:
+    """Return a stable color for a visible agent action or status."""
+    normalized = action.casefold().strip()
+    if normalized.startswith("verify"):
+        return BLUE if normalized == "verify" else RED
+    if normalized.startswith("git"):
+        return BLUE
+    if normalized.startswith("lsp"):
+        return BLUE
+    if normalized.startswith("status"):
+        return GREEN if "ok" in normalized or "ready" in normalized else TEAL
+    return _ACTION_COLORS.get(normalized, TEAL)
+
+
 def ctrl(action: str, detail: str = "") -> None:
-    line = f"{mini_logo()} {paint('▸', TEAL)} {action}"
+    color = action_color(action)
+    line = f"{mini_logo()} {paint('▸', color)} {paint(action, color)}"
     if detail:
         line += f" {paint(detail, DIM)}"
     print(line)

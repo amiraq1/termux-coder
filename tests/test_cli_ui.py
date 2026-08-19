@@ -22,6 +22,28 @@ def test_cli_ui_hides_thinking_and_streamed_tokens() -> None:
     assert output.getvalue() == ""
 
 
+def test_agent_action_colors_distinguish_outcomes() -> None:
+    from termux_coder import logo
+
+    assert logo.action_color("answer") == logo.GREEN
+    assert logo.action_color("tool done") == logo.GREEN
+    assert logo.action_color("approval") == logo.YELLOW
+    assert logo.action_color("denied") == logo.RED
+    assert logo.action_color("rollback") == logo.RED
+    assert logo.action_color("model route") == logo.TEAL
+
+
+def test_ctrl_remains_plain_when_color_is_disabled(monkeypatch, capsys) -> None:
+    from termux_coder import logo
+
+    monkeypatch.setattr(logo, "ENABLE_COLOR", False)
+    logo.ctrl("answer", "completed")
+    output = capsys.readouterr().out
+    assert "answer" in output
+    assert "completed" in output
+    assert "\\x1b[" not in output
+
+
 def test_cli_ui_show_thinking_enables_spinner_only() -> None:
     from termux_coder import logo
 
