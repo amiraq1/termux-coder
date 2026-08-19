@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Protocol
 from urllib.parse import urlsplit
 
+import httpx
+
 from ..models.research import EvidenceItem, ResearchPacket, SourceType, TaskIntent
 from ..tools.web_models import (
     FetchPageArgs,
@@ -207,7 +209,7 @@ class ResearchCoordinator:
                     fetched[item.url] = await self.page_fetcher.fetch(
                         FetchPageArgs(url=item.url, max_chars=self.fetch_max_chars)
                     )
-                except (OSError, TimeoutError, ConnectionError, Exception) as exc:  # noqa: BLE001
+                except (httpx.HTTPError, OSError, TimeoutError, ConnectionError) as exc:
                     # One unavailable source must not discard the entire research packet.
                     # Log only the error type — never the URL content or response body.
                     _log_research_fail(type(exc).__name__)

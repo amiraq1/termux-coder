@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
+import httpx
+import pytest
+
 from termux_coder.core.research import ResearchCoordinator
 from termux_coder.models.research import TaskIntent
 from termux_coder.tools.web_models import (
@@ -155,7 +158,7 @@ def test_failed_page_fetch_keeps_search_snippet():
 
     class FailingFetcher:
         async def fetch(self, _args):
-            raise RuntimeError("network unavailable")
+            raise httpx.ConnectError("network unavailable")
 
     coordinator = ResearchCoordinator(provider, FailingFetcher(), max_sources=1)
     packet = asyncio.run(coordinator.research(intent()))
@@ -163,3 +166,16 @@ def test_failed_page_fetch_keeps_search_snippet():
     assert len(packet.evidence) == 1
     assert packet.evidence[0].excerpt == "official snippet"
     assert packet.requires_more_research is True
+
+
+
+def test_unexpected_page_fetch_error_is_not_suppressed():
+    provider = FakeProvider(search_result())
+
+    class FailingFetcher:
+        async def fetch(self, _args):
+            raise RuntimeError("unexpected parser failure")
+
+    coordinator = ResearchCoordinator(provider, FailingFetcher(), max_sources=1)
+    with pytest.raises(RuntimeError, match="unexpected parser failure"):
+        asyncio.run(coordinator.research(intent()))
