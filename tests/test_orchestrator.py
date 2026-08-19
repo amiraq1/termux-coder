@@ -93,7 +93,8 @@ def build_orchestrator(
     return orch, audit, provider
 
 
-MSGS = [{"role": "user", "content": "hello"}]
+MSGS = [{"role": "user", "content": "read the workspace file and summarize it"}]
+MSGS_GIT = [{"role": "user", "content": "show git status"}]
 
 
 # ── اختبارات العقود ─────────────────────────────────────────

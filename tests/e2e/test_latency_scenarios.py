@@ -72,7 +72,7 @@ def test_long_turn_records_round_count_and_per_tool_duration(e2e_components) -> 
     orchestrator = _build_latency_orchestrator(e2e_components, provider, delayed_list)
 
     started = time.monotonic()
-    result = run(orchestrator.run_turn([{"role": "user", "content": "inspect slowly"}]))
+    result = run(orchestrator.run_turn([{"role": "user", "content": "list the workspace files slowly and report timing"}]))
     elapsed_s = time.monotonic() - started
 
     assert result.state is TurnState.IDLE
@@ -103,7 +103,7 @@ def test_long_turn_stops_at_wall_clock_deadline(e2e_components) -> None:
     orchestrator.max_duration_s = 0.08
 
     started = time.monotonic()
-    result = run(orchestrator.run_turn([{"role": "user", "content": "inspect until timeout"}]))
+    result = run(orchestrator.run_turn([{"role": "user", "content": "list the workspace files until timeout"}]))
     elapsed_s = time.monotonic() - started
 
     assert result.state is TurnState.FAILED
@@ -130,7 +130,7 @@ def test_slow_provider_is_distinguished_from_slow_tool(e2e_components) -> None:
 
     orchestrator = _build_latency_orchestrator(e2e_components, provider, fast_list)
     started = time.monotonic()
-    result = run(orchestrator.run_turn([{"role": "user", "content": "measure latency"}]))
+    result = run(orchestrator.run_turn([{"role": "user", "content": "list the workspace files and measure latency"}]))
     elapsed_s = time.monotonic() - started
 
     assert result.state is TurnState.IDLE
