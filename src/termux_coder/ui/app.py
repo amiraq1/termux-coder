@@ -108,6 +108,9 @@ class TextualUI(AgentUI):
 
     async def on_event(self, kind: str, **payload) -> None:
         self.app.set_phase(kind, payload)
+        if kind == "provider_health":
+            self.app.update_provider_health(payload)
+            return
         if kind == "turn_start":
             self._buf = []
             self._t0 = time.time()
@@ -373,6 +376,7 @@ class TermuxCoderApp(App):
         self._last_map_signature: tuple | None = None
         self._phase = "READY"
         self._activity = "waiting for your request"
+        self._provider_health = {"state": "unknown", "latency_ms": None}
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -457,7 +461,43 @@ class TermuxCoderApp(App):
         text.append(provider, style=theme.WHITE)
         text.append("  ·  model: ", style=theme.DIM)
         text.append(model, style=theme.WHITE)
+        text.append("  ·  ", style=theme.DIM)
+        text.append(
+            self._provider_health_label(),
+            style=self._provider_health_style(),
+        )
         self.query_one("#header", Static).update(text)
+
+    def update_provider_health(self, payload: dict) -> None:
+        self._provider_health = dict(payload)
+        self._render_header()
+
+    def _provider_health_label(self) -> str:
+        state = self._provider_health.get("state", "unknown")
+        labels = {
+            "unknown": "? unknown",
+            "checking": "◌ checking",
+            "online": "● online",
+            "degraded": "! degraded",
+            "offline": "× offline",
+            "auth_error": "! auth error",
+            "rate_limited": "! rate limited",
+        }
+        label = labels.get(state, "? unknown")
+        latency = self._provider_health.get("latency_ms")
+        if state == "online" and isinstance(latency, (int, float)):
+            label += f" {latency:.0f}ms"
+        return label
+
+    def _provider_health_style(self) -> str:
+        state = self._provider_health.get("state", "unknown")
+        if state == "online":
+            return f"bold {theme.TEAL}"
+        if state in {"offline", "auth_error", "rate_limited"}:
+            return f"bold {theme.RED}"
+        if state in {"checking", "degraded"}:
+            return f"bold {theme.ORANGE}"
+        return theme.DIM
 
     def register_expandable(self, widget: ExpandableStatic) -> None:
         self._expandables.append(widget)
