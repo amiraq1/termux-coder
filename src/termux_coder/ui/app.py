@@ -434,17 +434,29 @@ class TermuxCoderApp(App):
         except NoMatches:
             pass  # widget not yet mounted; activity label will render on next compose
 
+    @staticmethod
+    def _compact_header_value(value: str, limit: int = 34) -> str:
+        value = str(value)
+        if len(value) <= limit:
+            return value
+        return value[: limit - 1] + "…"
+
     def _render_header(self) -> None:
         project = self.agent.jail.root.name or str(self.agent.jail.root)
+        provider = self._compact_header_value(self.agent.settings.provider, 24)
+        model = self._compact_header_value(self.agent.settings.model, 42)
         text = Text()
         text.append("◈ agent", style=f"bold {theme.TEAL}")
         text.append(f"  ·  {project}", style=theme.WHITE)
-        text.append(f"  ·  {self.agent.settings.provider}", style=theme.DIM)
-        text.append(f"  ·  {self.agent.settings.model}", style=theme.DIM)
         text.append(
             f"  ·  {self.agent.settings.security_mode}",
             style=f"bold {theme.ORANGE}",
         )
+        text.append("\n")
+        text.append("provider: ", style=theme.DIM)
+        text.append(provider, style=theme.WHITE)
+        text.append("  ·  model: ", style=theme.DIM)
+        text.append(model, style=theme.WHITE)
         self.query_one("#header", Static).update(text)
 
     def register_expandable(self, widget: ExpandableStatic) -> None:
