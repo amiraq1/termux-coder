@@ -552,7 +552,7 @@ class TermuxCoderApp(App):
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
-    Input { height: 3; margin: 0 1; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
+    Input, Input:focus { height: 3; margin: 0 1; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
     """
@@ -591,7 +591,7 @@ class TermuxCoderApp(App):
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
         self._render_header()
-        self.update_activity("READY", "waiting for your request")
+        self.update_activity("", "")
         if not self.settings.tui_show_activity:
             self.query_one("#activity").add_class("-hidden")
         if not self.settings.tui_show_status:
@@ -632,7 +632,7 @@ class TermuxCoderApp(App):
         elif kind in {"web_search_started", "fetch_page_started", "research_start"}:
             self.update_activity("RUNNING", str(payload.get("tool") or payload.get("query") or payload.get("url") or "research"))
         elif kind == "turn_end":
-            self.update_activity("EXPLORE", "Security & data flow analysis")
+            self.update_activity("", "")
         self._render_status()
 
     def update_activity(self, label: str, detail: str = "") -> None:
@@ -648,7 +648,7 @@ class TermuxCoderApp(App):
             if detail:
                 text.append(f" ({detail})", style=theme.WHITE)
             text.append(glyphs.ellipsis, style=theme.DIM)
-        else:
+        elif label:
             text.append(self._activity, style=theme.DIM)
         try:
             self.query_one("#activity", Static).update(text)
