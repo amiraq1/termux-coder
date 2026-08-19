@@ -65,6 +65,18 @@ class ChatFeed(VerticalScroll):
         for _role, widget in self.message_widgets:
             widget.remove_class("-selected")
 
+    def jump_to_first_message(self) -> None:
+        if self.message_widgets:
+            self.select_message(0)
+
+    def jump_to_last_message(self) -> None:
+        if not self.message_widgets:
+            return
+        self.select_message(len(self.message_widgets) - 1)
+        self.follow_output = True
+        if self.owner is not None:
+            self.owner.scroll_to_bottom()
+
     def on_scroll(self, _event: events.Scroll) -> None:
         at_end = self.scroll_y >= self.max_scroll_y - 1
         self.follow_output = at_end
@@ -103,6 +115,12 @@ class PromptInput(Input):
         elif event.key == "ctrl+down":
             event.stop()
             self.termux_app.action_next_message()
+        elif event.key == "ctrl+home":
+            event.stop()
+            self.termux_app.action_first_message()
+        elif event.key == "ctrl+end":
+            event.stop()
+            self.termux_app.action_last_message()
 
 
 class TextualUI(AgentUI):
@@ -426,6 +444,8 @@ class TermuxCoderApp(App):
         Binding("ctrl+a", "open_provider_picker", "provider", show=False),
         Binding("ctrl+up", "previous_message", "previous message", show=False),
         Binding("ctrl+down", "next_message", "next message", show=False),
+        Binding("ctrl+home", "first_message", "first message", show=False),
+        Binding("ctrl+end", "last_message", "last message", show=False),
     ]
     CSS = """
     Screen { background: #07090d; color: #e7e9ee; }
@@ -804,6 +824,12 @@ class TermuxCoderApp(App):
 
     def action_next_message(self) -> None:
         self.query_one("#feed", ChatFeed).move_message(1)
+
+    def action_first_message(self) -> None:
+        self.query_one("#feed", ChatFeed).jump_to_first_message()
+
+    def action_last_message(self) -> None:
+        self.query_one("#feed", ChatFeed).jump_to_last_message()
 
     def set_scroll_button(self, visible: bool) -> None:
         try:
