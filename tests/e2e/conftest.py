@@ -13,7 +13,7 @@ from termux_coder.providers.mock import MockProvider
 from termux_coder.security.audit import AuditLog
 from termux_coder.security.jail import WorkspaceJail
 from termux_coder.security.policy import CommandPolicy, PolicyEngine
-from termux_coder.tools import edit, transaction
+from termux_coder.tools import edit, fs, transaction
 from termux_coder.tools.preview import PatchPreviewService
 from termux_coder.core.verification import VerificationRunner
 
@@ -89,6 +89,7 @@ def e2e_components(e2e_workspace: Path):
         lsp=None,
     )
     registry = ToolRegistry()
+    registry.register("list_dir", "List a directory", fs.ListDirArgs, fs.list_dir)
     registry.register("apply_patch", "Apply a patch", edit.ApplyPatchArgs, edit.apply_patch)
     registry.register("rollback_patch", "Rollback a patch", edit.RollbackPatchArgs, edit.rollback_patch)
     registry.register("apply_patch_plan", "Apply a multi-file patch plan", transaction.PatchPlanArgs, transaction.apply_patch_plan)

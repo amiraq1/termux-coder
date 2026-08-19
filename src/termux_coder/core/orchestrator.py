@@ -251,6 +251,7 @@ class AgentOrchestrator:
         self._tool_results: list[ToolResult] = []
         self._research_tools = {"web_search", "fetch_page"}
         self._edit_requested = False
+        self._edit_recovery_used = False
         self._mutation_call_keys: set[tuple[str, str]] = set()
         self._mutations_without_verification = 0
 
@@ -1014,6 +1015,7 @@ class AgentOrchestrator:
         self._cancel_event.clear()
         self._pending_approvals.clear()
         self._tool_results.clear()
+        self._edit_recovery_used = False
         self._mutation_call_keys.clear()
         self._mutations_without_verification = 0
         if self._verification_runner is not None:
@@ -1179,6 +1181,30 @@ class AgentOrchestrator:
                 if not provider_resp.has_tool_calls:
                     # A mutation request cannot succeed on text alone.
                     if self._edit_requested and not self._has_successful_edit():
+                        if not self._edit_recovery_used:
+                            self._edit_recovery_used = True
+                            recovery_message = {
+                                "role": "system",
+                                "content": (
+                                    "The current user request requires a code change. "
+                                    "The previous tool calls were read-only and did not apply a patch. "
+                                    "Do not claim success. Read the exact target file if needed, "
+                                    "then produce an apply_patch or apply_patch_plan call for preview "
+                                    "and approval. If no safe target can be determined, explain the blocker."
+                                ),
+                            }
+                            self._append_message(messages, recovery_message)
+                            self.audit.log(
+                                "edit_recovery_retry",
+                                turn_id=self._turn_id,
+                                round=rounds_used,
+                                reason="read_only_tools_without_patch",
+                            )
+                            await self._on_event(
+                                "edit_recovery_retry",
+                                reason="read_only_tools_without_patch",
+                            )
+                            continue
                         error = "edit not applied: no approved patch completed"
                         self._transition(TurnState.FAILED)
                         self.audit.log(

@@ -210,3 +210,28 @@ def test_verification_skipped_is_terminal_and_does_not_retry_mutation(e2e_compon
         assert any(kind == "verification_required" for kind, _ in components["ui"].events)
 
     run(scenario())
+
+
+def test_read_only_first_edit_request_recovers_to_patch(e2e_components):
+    async def scenario():
+        components = e2e_components
+        patch = patch_text('return "Hello, " + name', 'return "Recovered"')
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool("map1", "list_dir", {"path": "."}),
+                MockResponse.text("The repository map is ready, but the requested edit is not applied yet."),
+                MockResponse.with_tool("patch1", "apply_patch", {"path": "main.py", "patch": patch}),
+                MockResponse.text("Done after the approved patch."),
+            ],
+        )
+
+        result = await orch.run_turn([{"role": "user", "content": "Inspect the repository and update main.py safely"}])
+
+        assert result.state.value == "idle"
+        assert 'return "Recovered"' in (components["workspace"] / "main.py").read_text()
+        assert any(kind == "edit_recovery_retry" for kind, _ in components["ui"].events)
+        assert any(kind == "preview_ready" for kind, _ in components["ui"].events)
+        assert any(kind == "verification_result" for kind, _ in components["ui"].events)
+
+    run(scenario())
