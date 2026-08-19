@@ -32,6 +32,10 @@ class ChatFeed(VerticalScroll):
         super().__init__(*args, **kwargs)
         self.owner = owner
         self.follow_output = True
+        self.message_widgets = []
+
+    def register_message(self, widget, role: str) -> None:
+        self.message_widgets.append((role, widget))
 
     def on_scroll(self, _event: events.Scroll) -> None:
         at_end = self.scroll_y >= self.max_scroll_y - 1
@@ -78,9 +82,11 @@ class TextualUI(AgentUI):
         self._read_lines = 0
         self._last_map_signature: tuple | None = None
 
-    def _put(self, widget) -> None:
+    def _put(self, widget, message_role: str | None = None) -> None:
         feed = self.app.query_one("#feed", ChatFeed)
         feed.mount(widget)
+        if message_role:
+            feed.register_message(widget, message_role)
         if feed.follow_output:
             feed.scroll_end(animate=False)
 
@@ -88,11 +94,11 @@ class TextualUI(AgentUI):
         expanded, collapsed = markdown_fold_renderables(label, content, preview_lines)
         if collapsed is None:
             widget = Static(expanded)
-            self._put(widget)
+            self._put(widget, message_role="assistant")
             return widget
         widget = ExpandableStatic(expanded, collapsed)
         self.app.register_expandable(widget)
-        self._put(widget)
+        self._put(widget, message_role="assistant")
         return widget
 
     def _put_folded(self, label: str, content: str, preview_lines: int, content_style: str | None = None):
@@ -702,7 +708,9 @@ class TermuxCoderApp(App):
         line = Text()
         line.append("❯ ", style=f"bold {theme.TEAL}")
         line.append(escape(text), style=f"bold {theme.WHITE}")
-        feed.mount(Static(line))
+        message_widget = Static(line)
+        feed.mount(message_widget)
+        feed.register_message(message_widget, "user")
         feed.scroll_end(animate=False)
         self.run_agent(text)
 
