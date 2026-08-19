@@ -20,6 +20,7 @@ from .blocks import (
     ExpandableStatic,
     diff_renderable,
     fold_renderables,
+    markdown_fold_renderables,
     todos_renderable,
     tool_line,
     updated_line,
@@ -72,6 +73,17 @@ class TextualUI(AgentUI):
         feed = self.app.query_one("#feed", ChatFeed)
         feed.mount(widget)
         feed.scroll_end(animate=False)
+
+    def _put_markdown_folded(self, label: str, content: str, preview_lines: int):
+        expanded, collapsed = markdown_fold_renderables(label, content, preview_lines)
+        if collapsed is None:
+            widget = Static(expanded)
+            self._put(widget)
+            return widget
+        widget = ExpandableStatic(expanded, collapsed)
+        self.app.register_expandable(widget)
+        self._put(widget)
+        return widget
 
     def _put_folded(self, label: str, content: str, preview_lines: int, content_style: str | None = None):
         expanded, collapsed = fold_renderables(label, content, preview_lines, content_style)
@@ -138,12 +150,12 @@ class TextualUI(AgentUI):
                 self._buf = []
                 stream_widget.remove()
                 if text:
-                    widget = self._put_folded("ASSISTANT", text, 4)
+                    widget = self._put_markdown_folded("ASSISTANT", text, 4)
                     self.app.show_context_actions(text, widget)
             else:
                 text = "".join(self._buf).strip()
                 if text:
-                    widget = self._put_folded("ASSISTANT", text, 4)
+                    widget = self._put_markdown_folded("ASSISTANT", text, 4)
                     self.app.show_context_actions(text, widget)
                 self._buf = []
 

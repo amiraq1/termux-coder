@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from rich.console import Group
+from rich.markdown import Markdown
 from rich.text import Text
 from textual.widgets import Static
 
@@ -38,6 +40,30 @@ def updated_line(path: str, adds: int, rems: int) -> Text:
     t.append(str(rems), style="bold #f47067")
     t.append(" removals", style=theme.DIM)
     return t
+
+
+def markdown_fold_renderables(label: str, content: str, preview_lines: int) -> tuple[Group, Group | None]:
+    """Render assistant Markdown with highlighted fenced code blocks.
+
+    Rich renders the content only; it is never evaluated or executed. The
+    collapsed view intentionally uses plain text so it remains cheap to draw.
+    """
+    lines = content.splitlines() or [""]
+    full = Group(
+        Text(f"▾ {label} · {len(lines)} lines", style=f"bold {theme.LAVENDER}"),
+        Markdown(content, code_theme="monokai", hyperlinks=False),
+    )
+    if len(lines) <= preview_lines:
+        return full, None
+    preview = Group(
+        Text(f"▸ {label} · {len(lines)} lines", style=f"bold {theme.LAVENDER}"),
+        Text("\n".join(lines[:preview_lines]), style=theme.WHITE),
+        Text(
+            f"… {len(lines) - preview_lines} more lines · Ctrl+O to expand",
+            style=theme.DIM,
+        ),
+    )
+    return full, preview
 
 
 def fold_renderables(label: str, content: str, preview_lines: int, content_style: str | None = None) -> tuple[Text, Text | None]:
