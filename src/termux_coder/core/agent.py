@@ -23,6 +23,7 @@ from .capabilities import CapabilityRegistry, WebSearchCapabilityAdapter
 from .orchestrator import AgentOrchestrator, TurnState
 from .orchestrator_adapter import RouterProviderAdapter
 from .verification import VerificationRunner
+from .trace import TraceStore
 from .research import ResearchCoordinator
 from ..tools.preview import PatchPreviewService
 from ..tools.duckduckgo import DuckDuckGoProvider
@@ -153,6 +154,11 @@ class Agent:
             self.research_coordinator,
             self.capability_registry,
         )
+        self.trace_store = (
+            TraceStore(settings.state_dir / "traces.jsonl")
+            if getattr(settings, "execution_trace_enabled", True)
+            else None
+        )
         self.orchestrator: AgentOrchestrator | None = None
         self.last_turn_result = None
 
@@ -213,11 +219,13 @@ class Agent:
             message_sink=self._persist,
             message_preparer=prepare_messages,
             preview_service=PatchPreviewService(self.jail, self.state),
-            verification_runner=(
-                VerificationRunner(self.jail.root, self.settings)
-                if self.settings.verification_enabled else None
-            ),
-        )
+                            verification_runner=(
+                    VerificationRunner(self.jail.root, self.settings)
+                    if self.settings.verification_enabled else None
+                ),
+                trace_store=self.trace_store,
+            )
+
         try:
             result = await self.orchestrator.run_turn(
                 self.messages,

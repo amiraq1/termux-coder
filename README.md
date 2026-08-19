@@ -45,6 +45,7 @@
 | TUI_AUTO_FOCUS | TERMUX_CODER_TUI_AUTO_FOCUS | 1 |
 | TUI_MODEL_NEXT_KEY | TERMUX_CODER_TUI_MODEL_NEXT_KEY | ctrl+down |
 | TUI_MODEL_PREV_KEY | TERMUX_CODER_TUI_MODEL_PREV_KEY | ctrl+up |
+| EXECUTION_TRACE | TERMUX_CODER_EXECUTION_TRACE | 1 |
 | SECURITY | — | ASK (أو READONLY / GRANULAR / AUTO) |
 | LSP / LSP_WAIT | — | 1 / 0.8 |
 | REPO_MAP / REPO_MAP_BUDGET | — | 1 / 6000 |
@@ -201,6 +202,42 @@ export TERMUX_CODER_TUI_MODEL_NEXT_KEY='alt+j'
 الاختصارات الافتراضية هي `Ctrl+Up` للنموذج السابق و`Ctrl+Down` للنموذج التالي. تم اختيارها لتجنب تعارض `Ctrl+P` مع اختصار التركيز العام في الواجهة الرئيسية. يعمل الاختصار المخصص داخل قائمة النماذج فقط، ولا يغير اختصارات CLI العامة مثل `Ctrl+A` لفتح قائمة المزودين أو `Ctrl+O` لتوسيع diff. يمكن استخدام الأسهم و`Enter` في جميع الحالات كمسار بديل.
 
 يكون حقل السؤال مركزًا تلقائيًا عند بدء TUI عندما تكون قيمة `TERMUX_CODER_TUI_AUTO_FOCUS=1`، ويمكن إعادة التركيز عليه عبر `Ctrl+P`. إذا لم تظهر لوحة Android الناعمة، فهذه وظيفة يتحكم بها تطبيق Termux وإعدادات Android، وليست شيئًا يستطيع Python أو Textual إجباره بشكل موثوق. فعّل لوحة المفاتيح الناعمة من إعدادات Termux/Android، أو استخدم شريط **Extra Keys** للوصول إلى `CTRL` و`ESC` والأسهم. لتعطيل التركيز التلقائي استخدم `TERMUX_CODER_TUI_AUTO_FOCUS=0`.
+
+## Execution Trace وReplay
+
+عند تفعيل `EXECUTION_TRACE=1` ومع تشغيل `TERMUX_CODER_ORCHESTRATOR=1` يسجل مسار الـOrchestrator لكل جولة في:
+
+```text
+<workspace>/.termux_coder/traces.jsonl
+```
+
+يحتوي السجل على معرف الجولة، رقم الجولة، اسم الأداة، مدة التنفيذ، الحالة، وبصمة النتائج. لا يحفظ محتوى الملفات أو قيم المفاتيح. تُحفظ معاملات أدوات القراءة فقط (`read_file` و`list_dir` و`search_text` و`repo_map` وأدوات Git القرائية) حتى يمكن إعادة تشغيلها؛ معاملات الكتابة وshell والشبكة لا تُحفظ لإعادة التنفيذ.
+
+لعرض الجولات:
+
+```sh
+python -m termux_coder traces \
+  --workspace ~/test-agent
+```
+
+ولإخراج JSON:
+
+```sh
+python -m termux_coder traces \
+  --workspace ~/test-agent \
+  --json
+```
+
+لإعادة تشغيل جولة من خطوة معينة:
+
+```sh
+python -m termux_coder replay \
+  --workspace ~/test-agent \
+  --trace-id <TRACE_ID> \
+  --from-step 1
+```
+
+Replay لا يستدعي مزود الذكاء الاصطناعي، ولا يعيد تنفيذ الكتابة أو الأوامر أو الشبكة. إذا احتاجت الخطوة إلى موافقة أو لم تكن معاملاتها محفوظة، تظهر بحالة `skipped`. كما ينفذ Replay أدوات القراءة على نسخة معزولة من حالة الجلسة ولا يغير `read_files` أو حالة الوكيل الحية.
 
 ## حارس نطاق أدوات مساحة العمل
 

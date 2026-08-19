@@ -15,7 +15,7 @@ def _apply_show_thinking_override(settings, cli_value: bool | None):
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="termux-coder")
-    parser.add_argument("command", nargs="?", choices=["run", "doctor"], default="run")
+    parser.add_argument("command", nargs="?", choices=["run", "doctor", "traces", "replay"], default="run")
     parser.add_argument("--workspace", default=".")
     parser.add_argument(
         "--providers-config",
@@ -42,6 +42,8 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output for doctor")
     parser.add_argument("--verbose", action="store_true", help="show doctor check details")
     parser.add_argument("--network", action="store_true", help="reserved for doctor network probes")
+    parser.add_argument("--trace-id", default=None, help="trace identifier for replay")
+    parser.add_argument("--from-step", type=int, default=1, help="first trace step to replay")
     args = parser.parse_args()
 
     from .config import Settings
@@ -66,6 +68,54 @@ def main() -> None:
                 network=args.network,
             )
         )
+
+    if args.command == "traces":
+        import json
+        from .core.trace import TraceStore
+
+        rows = TraceStore(settings.state_dir / "traces.jsonl").list_traces()
+        if args.json_output:
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+        else:
+            for row in rows:
+                print(
+                    f"{row['trace_id']}  {row.get('state') or 'running'}  "
+                    f"rounds={row.get('rounds', 0)}  {row.get('started_at') or ''}"
+                )
+        return
+
+    if args.command == "replay":
+        if not args.trace_id:
+            parser.error("replay requires --trace-id")
+        import json
+        from .cli import build_registry
+        from .core.agent import Agent
+        from .core.replay import ReplayRunner
+        from .core.trace import TraceStore
+        from .ui.cli import CliUI
+
+        agent = Agent(settings, None, build_registry(), CliUI())
+
+        async def _run_replay():
+            try:
+                runner = ReplayRunner(
+                    TraceStore(settings.state_dir / "traces.jsonl"),
+                    agent.registry,
+                    agent.ctx,
+                )
+                items = await runner.run(args.trace_id, from_step=args.from_step)
+                payload = [item.__dict__ for item in items]
+                if args.json_output:
+                    print(json.dumps(payload, ensure_ascii=False, indent=2))
+                else:
+                    for item in items:
+                        detail = item.reason or f"{item.duration_ms}ms"
+                        print(f"step {item.step}: {item.tool} [{item.status}] {detail}")
+            finally:
+                await agent.close()
+
+        asyncio.run(_run_replay())
+        return
 
     if not args.tui or args.cli:
         from .cli import cli_main

@@ -114,6 +114,9 @@ class Settings:
     verification_enabled: bool = field(
         default_factory=lambda: _env("VERIFICATION", "1") == "1"
     )
+    execution_trace_enabled: bool = field(
+        default_factory=lambda: _env("EXECUTION_TRACE", "1") == "1"
+    )
     verification_timeout_s: float = field(
         default_factory=lambda: float(_env("VERIFICATION_TIMEOUT", "30"))
     )

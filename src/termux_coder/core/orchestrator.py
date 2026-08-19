@@ -37,6 +37,7 @@ from ..security.policy import Permission, PolicyEngine
 from .registry import ToolRegistry
 from .recovery import recover_tool_calls, sanitize_tool_calls
 from ..tools.preview import PatchPreviewService, PreviewError
+from .trace import TraceStore
 from .verification import VerificationRunner, VerificationStatus
 
 
@@ -212,6 +213,7 @@ class AgentOrchestrator:
         message_preparer: Callable[[list[dict]], list[dict]] | None = None,
         preview_service: PatchPreviewService | None = None,
         verification_runner: VerificationRunner | None = None,
+        trace_store: TraceStore | None = None,
     ):
         self.provider       = provider
         self.registry       = registry
@@ -226,6 +228,9 @@ class AgentOrchestrator:
         self._message_preparer = message_preparer
         self._preview_service = preview_service
         self._verification_runner = verification_runner
+        self._trace_store = trace_store
+        self._trace_step = 0
+        self._trace_steps: dict[str, int] = {}
 
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
@@ -889,6 +894,8 @@ class AgentOrchestrator:
             )
 
         self._turn_id = uuid.uuid4().hex[:12]
+        self._trace_step = 0
+        self._trace_steps.clear()
         self._cancel_event.clear()
         self._pending_approvals.clear()
         self._tool_results.clear()
@@ -907,12 +914,21 @@ class AgentOrchestrator:
             "",
         )
         self._edit_requested = ModelRouter.looks_like_edit(user_text)
+        if self._trace_store is not None:
+            self._trace_store.turn_start(self._turn_id, user_text)
         research_ok, research_error = await self._run_research_gate(
             user_text,
             messages,
             deadline,
         )
         if not research_ok:
+            if self._trace_store is not None:
+                self._trace_store.turn_end(
+                    self._turn_id,
+                    state=self._state.value,
+                    rounds=0,
+                    error=research_error,
+                )
             return TurnResult(
                 state=self._state,
                 error=research_error,
@@ -977,6 +993,19 @@ class AgentOrchestrator:
                         tool=suppressed_call.name,
                         reason="workspace tool requires explicit file or repository intent",
                     )
+
+                if self._trace_store is not None:
+                    for call in provider_resp.tool_calls:
+                        self._trace_step += 1
+                        self._trace_steps[call.call_id] = self._trace_step
+                        self._trace_store.tool_call(
+                            self._turn_id,
+                            step=self._trace_step,
+                            call_id=call.call_id,
+                            tool=call.name,
+                            arguments=call.arguments,
+                            round_index=round_idx,
+                        )
 
                 # ── حفظ رسالة المساعد أولاً (ضروري للـ API) ──
                 self._append_message(messages, provider_resp.assistant_message)
@@ -1165,6 +1194,17 @@ class AgentOrchestrator:
                     )
                     result = await self._execute_one(ecall)
                     self._tool_results.append(result)
+                    if self._trace_store is not None:
+                        self._trace_store.tool_result(
+                            self._turn_id,
+                            step=self._trace_steps.get(ecall.call.call_id, 0),
+                            call_id=ecall.call.call_id,
+                            tool=ecall.call.name,
+                            ok=result.ok,
+                            duration_ms=result.duration_ms,
+                            content=result.to_content_str(),
+                            error_code=result.error.code.value if result.error else None,
+                        )
 
                     content = result.to_content_str(
                         max_chars=getattr(
@@ -1233,6 +1273,12 @@ class AgentOrchestrator:
                 rounds_used=rounds_used,
             )
         finally:
+            if self._trace_store is not None and self._turn_id is not None:
+                self._trace_store.turn_end(
+                    self._turn_id,
+                    state=self._state.value,
+                    rounds=rounds_used,
+                )
             self._pending_approvals.clear()
 
     # ── انتظار الموافقات ─────────────────────────────────────
