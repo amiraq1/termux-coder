@@ -336,12 +336,9 @@ class TextualUI(AgentUI):
         elif kind == "read_ok":
             self._read_files += 1
             self._read_lines += int(payload.get("lines", 0))
-            self.app.update_activity(
-                "READ",
-                f"{self._read_files} files · {self._read_lines} lines",
-            )
+            self.app.update_activity("RUNNING", payload.get("path", ""))
             self._put(
-                Static(tool_line("READ", payload["path"], f"{payload['lines']} lines"), markup=False)
+                Static(tool_line("READ", payload["path"]), markup=False)
             )
 
         elif kind == "patch_applied":
@@ -408,7 +405,7 @@ class TextualUI(AgentUI):
             self._put(Static(Text(text, style=theme.DIM)))
 
         elif kind == "tool_start":
-            self._put(Static(tool_line("TOOL", payload.get("tool", ""), "running"), markup=False))
+            self._put(Static(tool_line("Running", payload.get("tool", "")), markup=False))
         elif kind == "shell_done":
             command = payload.get("command", "")
             output = payload.get("output", "")
@@ -420,14 +417,14 @@ class TextualUI(AgentUI):
             self._put(Static(todos_renderable(items)))
 
         elif kind == "web_search_started":
-            self.app.update_activity("RESEARCHING", payload.get("query", ""))
+            self.app.update_activity("RUNNING", payload.get("query", ""))
             self._put(Static(tool_line("SEARCH", payload.get("provider", ""), payload.get("query", ""))))
         elif kind == "web_search_finished":
             self._put(Static(tool_line("SEARCH", payload.get("provider", ""), f"{payload.get('result_count', 0)} results")))
         elif kind == "web_search_failed":
             self._put(Static(Text(f"SEARCH · failed · {payload.get('error', '')}", style=theme.RED)))
         elif kind == "fetch_page_started":
-            self.app.update_activity("RESEARCHING", payload.get("url", ""))
+            self.app.update_activity("RUNNING", payload.get("url", ""))
             self._put(Static(tool_line("FETCH", "direct-page", payload.get("url", ""))))
         elif kind == "fetch_page_finished":
             self._put(Static(tool_line("FETCH", "direct-page", "page loaded")))
@@ -535,16 +532,16 @@ class TermuxCoderApp(App):
         Binding("ctrl+end", "last_message", "last message", show=False),
     ]
     CSS = """
-    Screen { background: #07090d; color: #e7e9ee; }
+    Screen { background: #000000; color: #e6e6f0; }
     Horizontal { height: 1fr; }
     #tree { width: 32; display: none; background: #0e1218; border: tall #232a36; }
     #tree.-visible { display: block; }
     #maincol { width: 1fr; min-width: 0; }
-    #header { height: 2; padding: 0 1; background: #111722; color: #c8d0de; border-bottom: solid #2b3850; }
-    ChatFeed { height: 1fr; padding: 1 1; scrollbar-size: 1 1; }
+    #header { display: none; }
+    #activity { height: 2; margin: 1 1 0 1; padding: 0 0; background: #000000; color: #e6e6f0; }
+    ChatFeed { height: 1fr; padding: 0 1; scrollbar-size: 1 1; background: #000000; }
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
-    #activity { height: 1; margin: 0 1; padding: 0 1; background: #111722; color: #9aa6b8; }
-    #status { height: 1; margin: 0 1; padding: 0 1; background: #0d1514; color: #9ce3cb; }
+    #status { height: 2; margin: 0 1; padding: 0 0; background: #000000; color: #9ce3cb; }
     #activity.-hidden, #status.-hidden { display: none; }
     ChatFeed .conversation-message.-selected { background: #18283d; border-left: tall #6ca0ff; }
     #scroll-bottom { height: 1; margin: 0 1; display: none; min-width: 18; }
@@ -552,7 +549,7 @@ class TermuxCoderApp(App):
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
-    Input { margin: 0 1; border: tall #456fa8; background: #11151c; }
+    Input { height: 3; margin: 0 1; padding: 0 0; border: none; border-top: solid #8a8a93; border-bottom: solid #8a8a93; background: #000000; color: #e6e6f0; }
     Footer { display: none; }
     .diff { overflow-x: auto; }
     """
@@ -580,12 +577,12 @@ class TermuxCoderApp(App):
             yield DirectoryTree(str(self.agent.jail.root), id="tree")
             with Vertical(id="maincol"):
                 yield Static(id="header")
-                yield ChatFeed(self, id="feed")
                 yield Static(id="activity")
+                yield ChatFeed(self, id="feed")
                 yield Static(id="status")
                 yield Button("↓ New output", id="scroll-bottom")
                 yield Horizontal(id="actions")
-                yield PromptInput(self, id="prompt", placeholder="Ask your question…")
+                yield PromptInput(self, id="prompt", placeholder="❯ Ask your question…")
 
     def on_mount(self) -> None:
         feed = self.query_one("#feed", ChatFeed)
@@ -611,29 +608,45 @@ class TermuxCoderApp(App):
 
     def set_phase(self, kind: str, payload: dict) -> None:
         labels = {
-            "turn_start": "THINKING",
-            "round_start": "PLANNING",
-            "tool_start": "EXECUTING",
-            "web_search_started": "RESEARCHING",
-            "fetch_page_started": "RESEARCHING",
-            "research_start": "RESEARCHING",
-            "research_packet": "RESEARCHING",
+            "turn_start": "EXPLORE",
+            "round_start": "EXPLORE",
+            "tool_start": "RUNNING",
+            "web_search_started": "RUNNING",
+            "fetch_page_started": "RUNNING",
+            "research_start": "RUNNING",
+            "research_packet": "RUNNING",
             "approval_requested": "AWAITING APPROVAL",
             "verification_start": "VERIFYING",
             "verification_result": f"VERIFY {payload.get('status', '')}",
             "turn_end": "READY",
         }
         self._phase = labels.get(kind, self._phase)
-        detail = payload.get("tool", payload.get("reason", ""))
-        self.update_activity(self._phase, detail)
+        if kind == "turn_start":
+            self.update_activity("EXPLORE", "Security & data flow analysis")
+        elif kind == "tool_start":
+            self.update_activity("RUNNING", str(payload.get("tool", "")))
+        elif kind in {"web_search_started", "fetch_page_started", "research_start"}:
+            self.update_activity("RUNNING", str(payload.get("tool") or payload.get("query") or payload.get("url") or "research"))
+        elif kind == "turn_end":
+            self.update_activity("EXPLORE", "Security & data flow analysis")
         self._render_status()
 
     def update_activity(self, label: str, detail: str = "") -> None:
         self._activity = f"{label} · {detail}" if detail else label
+        text = Text()
+        if label == "EXPLORE":
+            text.append("EXPLORE", style="bold #ffffff on #6c45f5")
+            if detail:
+                text.append(f"  ({detail})", style=theme.WHITE)
+        elif label == "RUNNING":
+            text.append("├ Running", style=theme.DIM)
+            if detail:
+                text.append(f" ({detail})", style=theme.WHITE)
+            text.append("...", style=theme.DIM)
+        else:
+            text.append(self._activity, style=theme.DIM)
         try:
-            self.query_one("#activity", Static).update(
-                Text(self._activity, style=theme.DIM)
-            )
+            self.query_one("#activity", Static).update(text)
         except NoMatches:
             pass  # widget not yet mounted; activity label will render on next compose
 
@@ -710,14 +723,10 @@ class TermuxCoderApp(App):
 
     def _render_status(self) -> None:
         if self._busy:
-            verb = theme.VERBS[self._verb % len(theme.VERBS)]
-            t = Text(
-                f" ◇ {self._phase} · {verb}… ",
-                style="bold #cfc3f7 on #2a2440",
-            )
+            t = Text("• Aligning…", style="bold #cfc3f7 on #2a2440")
         else:
-            t = Text(" ◈ READY ", style=f"bold {theme.TEAL} on #0d2b27")
-        t.append(f" · {self._tokens / 1000:.1f}k", style=theme.DIM)
+            t = Text("• Ready", style=f"bold {theme.TEAL}")
+        t.append(f"  {self._tokens / 1000:.1f}k", style=theme.DIM)
         self.query_one("#status", Static).update(t)
 
     # ── Shortcuts ─────────────────────────────────────────

@@ -23,9 +23,11 @@ class ExpandableStatic(Static):
 
 
 def tool_line(label: str, path: str, suffix: str = "", badge_color: str | None = None) -> Text:
-    t = Text()
-    t.append(f" {label} ", style=f"bold #ffffff on {badge_color or theme.PURPLE}")
-    t.append(f" [{path}]", style=f"bold {theme.WHITE}")
+    """Render an activity row using the reference tree layout."""
+    t = Text("├ ", style=theme.DIM)
+    t.append(label, style=f"bold {badge_color or theme.LAVENDER}")
+    if path:
+        t.append(f" ({path})", style=theme.WHITE)
     if suffix:
         t.append(f" {suffix}", style=theme.DIM)
     return t
