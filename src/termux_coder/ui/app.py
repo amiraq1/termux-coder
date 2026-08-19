@@ -567,7 +567,7 @@ class TermuxCoderApp(App):
     #tree { width: 32; display: none; background: #0e1218; border: tall #232a36; }
     #tree.-visible { display: block; }
     #maincol { width: 1fr; min-width: 0; }
-    #header { display: none; }
+    #header { height: 4; min-height: 4; margin: 0 1; padding: 0 1; background: #000000; color: #e6e6f0; content-align: center middle; }
     #activity { height: 2; margin: 1 1 0 1; padding: 0 0; background: #000000; color: #e6e6f0; }
     ChatFeed { height: 1fr; padding: 0 1; scrollbar-size: 1 1; background: #000000; }
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
@@ -691,26 +691,22 @@ class TermuxCoderApp(App):
         return value[: limit - 1] + current_glyphs().ellipsis
 
     def _render_header(self) -> None:
-        project = self.agent.jail.root.name or str(self.agent.jail.root)
-        provider = self._compact_header_value(self.agent.settings.provider, 24)
-        model = self._compact_header_value(self.agent.settings.model, 42)
-        text = Text()
-        glyphs = current_glyphs()
-        text.append(f"{glyphs.diamond} agent", style=f"bold {theme.TEAL}")
-        text.append(f"  {glyphs.separator}  {project}", style=theme.WHITE)
-        text.append(
-            f"  {glyphs.separator}  {self.agent.settings.security_mode}",
-            style=f"bold {theme.ORANGE}",
+        project = self._compact_header_value(
+            self.agent.jail.root.name or str(self.agent.jail.root),
+            28,
         )
-        text.append("\n")
-        text.append("provider: ", style=theme.DIM)
-        text.append(provider, style=theme.WHITE)
-        text.append(f"  {glyphs.separator}  model: ", style=theme.DIM)
-        text.append(model, style=theme.WHITE)
-        text.append(f"  {glyphs.separator}  ", style=theme.DIM)
+        provider = self._compact_header_value(self.agent.settings.provider, 18)
+        model = self._compact_header_value(self.agent.settings.model, 34)
+        glyphs = current_glyphs()
+        text = Text(justify="center")
+        text.append("nabdcode\n", style=f"bold {theme.TEAL}")
         text.append(
-            self._provider_health_label(),
-            style=self._provider_health_style(),
+            f"{model}  {glyphs.separator}  {project}",
+            style=theme.DIM,
+        )
+        text.append(
+            f"  {glyphs.separator}  {provider}",
+            style=theme.DIM,
         )
         self.query_one("#header", Static).update(text)
 
