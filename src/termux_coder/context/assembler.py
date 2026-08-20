@@ -17,14 +17,14 @@ class ContextAssembler:
         self.estimator = estimator
         self.budget = budget
 
-    def assemble(self, items: list[ContextItem]) -> list[dict]:
+    def assemble(self, items: list[ContextItem], current_task: str = "") -> list[dict]:
         """
         تحويل ContextItems إلى رسائل LLM.
         
         1. fit ضمن الميزانية
         2. تحويل إلى message dicts
         """
-        fitted = self.budget.fit(items)
+        fitted = self.budget.fit(items, current_task=current_task)
 
         messages = []
         for item in fitted:

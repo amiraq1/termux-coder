@@ -201,3 +201,50 @@ def test_priority_classification():
 
     item_tool = PriorityEngine.classify(msg_tool, seq=8, current_seq=10)
     assert item_tool.priority == 2  # recent tool
+
+
+def test_old_conversation_is_compacted_into_task_summary():
+    est = TokenEstimator()
+    budget = BudgetManager(max_tokens=30, output_reserve=10, estimator=est)
+    items = [
+        ContextItem(content="system prompt " * 5, kind="system", priority=0, compressible=False),
+        ContextItem(content="current request " * 5, kind="user", priority=0, compressible=False),
+        ContextItem(content="inspect the parser " * 8, kind="user", priority=5),
+        ContextItem(
+            content="The parser was inspected successfully. " * 8,
+            kind="assistant",
+            priority=5,
+        ),
+        ContextItem(
+            content="read_file completed " * 8,
+            kind="tool",
+            priority=5,
+            metadata={"tool_name": "read_file"},
+        ),
+    ]
+
+    fitted = budget.fit(items, current_task="continue parser inspection")
+    summaries = [item for item in fitted if item.kind == "summary"]
+
+    assert len(summaries) == 1
+    assert "Task: continue parser inspection" in summaries[0].content
+    assert "Requested: inspect the parser" in summaries[0].content
+    assert "Used read_file" in summaries[0].content
+    assert all(item.priority != 5 for item in fitted)
+
+
+def test_context_assembler_passes_current_task_to_compaction():
+    est = TokenEstimator()
+    assembler = ContextAssembler(est, BudgetManager(max_tokens=30, output_reserve=10, estimator=est))
+    items = [
+        ContextItem(content="system prompt " * 5, kind="system", priority=0, compressible=False),
+        ContextItem(content="current request " * 5, kind="user", priority=0, compressible=False),
+        ContextItem(content="old request " * 8, kind="user", priority=5),
+    ]
+
+    messages = assembler.assemble(items, current_task="inspect repository")
+
+    assert any(
+        message["role"] == "system" and "Task: inspect repository" in message["content"]
+        for message in messages
+    )

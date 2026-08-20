@@ -26,7 +26,7 @@ class BudgetManager:
     def input_budget(self) -> int:
         return self.max_tokens - self.output_reserve
 
-    def fit(self, items: list[ContextItem]) -> list[ContextItem]:
+    def fit(self, items: list[ContextItem], current_task: str = "") -> list[ContextItem]:
         """
         ضبط العناصر لتناسب الميزانية.
         
@@ -44,12 +44,25 @@ class BudgetManager:
         # فرز حسب الأولوية (عكسي: P5 أولًا للضغط)
         sorted_items = sorted(items, key=lambda x: -x.priority)
 
-        # المرحلة A: حذف P5 (محادثة قديمة)
+        # المرحلة A: تلخيص P5 (المحادثة القديمة) بدل حذفها بلا أثر.
         kept = []
+        old_conversation = []
         for item in sorted_items:
             if item.priority == 5 and item.compressible:
-                continue  # حذف
+                old_conversation.append(item)
+                continue
             kept.append(item)
+
+        if old_conversation:
+            from .compactor import CompactionStrategy
+
+            strategy = CompactionStrategy(self.estimator)
+            kept.append(
+                strategy.compact_conversation(
+                    old_conversation,
+                    current_task or "continue the current task",
+                )
+            )
 
         total = sum(self.estimator.estimate(item.content) for item in kept)
         if total <= self.input_budget:
@@ -90,9 +103,8 @@ class BudgetManager:
         if total <= self.input_budget:
             return self._sort_by_original_order(further_compacted, items)
 
-        # المرحلة D: ضغط P2 (ملخصات)
-        # هنا يمكن تلخيص المحادثة الكاملة إلى task summary
-        # لكن هذا يتطلب معرفة "current task" — نتركها للـ Assembler
+        # المرحلة D: الملخص الناتج عن compact_conversation غير قابل للضغط.
+        # تبقى P0/P1 محفوظة، ويمكن حذف P2 القابلة للضغط كحل أخير.
 
         # fallback: حذف P2 compressible
         final = []
@@ -106,10 +118,14 @@ class BudgetManager:
     def _sort_by_original_order(
         self, items: list[ContextItem], original: list[ContextItem]
     ) -> list[ContextItem]:
-        """استعادة الترتيب الأصلي بعد الضغط."""
-        # استخدام index في original كـ sort key
-        item_set = set(id(item) for item in items)
-        return [item for item in original if id(item) in item_set]
+        """استعادة الترتيب مع إبقاء العناصر الجديدة الناتجة عن الضغط."""
+        original_order = {id(item): index for index, item in enumerate(original)}
+        # Generated summaries/compacted items are appended stably after their
+        # surviving originals instead of being discarded as unknown identities.
+        return sorted(
+            items,
+            key=lambda item: original_order.get(id(item), len(original)),
+        )
 
     def estimate(self, items: list[ContextItem]) -> int:
         """حساب الحجم الإجمالي."""

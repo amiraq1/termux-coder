@@ -335,7 +335,7 @@ class Agent:
                 PriorityEngine.classify(msg, i, current_seq)
                 for i, msg in enumerate(messages)
             ]
-            return self.assembler.assemble(items)
+            return self.assembler.assemble(items, current_task=user_text)
 
         provider = RouterProviderAdapter(self.router, self.ui, user_text)
         provider.begin_turn()
@@ -437,7 +437,7 @@ class Agent:
                 ]
 
                 # v0.6: تجميع السياق المضغوط
-                assembled = self.assembler.assemble(items)
+                assembled = self.assembler.assemble(items, current_task=user_text)
                 stats = self.assembler.stats(items)
 
                 # v0.6: إرسال stats للواجهة

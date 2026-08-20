@@ -88,6 +88,9 @@ class CompactionStrategy:
                 # استخراج اسم الأداة من metadata
                 tool_name = item.metadata.get("tool_name", "tool")
                 progress.append(f"- Used {tool_name}")
+            elif item.kind == "user" and item.content:
+                first_sentence = item.content.split(".")[0][:100]
+                progress.append(f"- Requested: {first_sentence}")
             elif item.kind == "assistant" and item.content:
                 # استخراج أول جملة
                 first_sentence = item.content.split(".")[0][:100]
