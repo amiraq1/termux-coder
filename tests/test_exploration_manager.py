@@ -126,3 +126,53 @@ def test_cancel_stops_pending_tasks_before_worker_execution():
         assert manager.snapshot()["cancelled"] is True
 
     asyncio.run(scenario())
+
+
+def test_todo_status_events_follow_task_lifecycle():
+    async def scenario():
+        updates = []
+
+        async def on_update(kind, payload):
+            if kind == "exploration_todos":
+                updates.append(payload["items"])
+
+        manager = ExplorationManager(on_update=on_update)
+        manager.configure([ExplorationTaskSpec("core", "core subsystem", "src/core")])
+
+        await manager.start_task("core")
+        await manager.finish_task("core")
+
+        assert [items[0]["status"] for items in updates] == ["running", "done"]
+        assert updates[-1][0]["todo_id"] == "core"
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_pending_task_publishes_failed_todo_state():
+    async def scenario():
+        updates = []
+
+        async def on_update(kind, payload):
+            if kind == "exploration_todos":
+                updates.append(payload["items"])
+
+        manager = ExplorationManager(max_tasks=2, on_update=on_update)
+        specs = [
+            ExplorationTaskSpec("one", "one", "src"),
+            ExplorationTaskSpec("two", "two", "src"),
+        ]
+
+        async def worker(task):
+            manager.cancel()
+            await asyncio.sleep(0)
+            return task.task_id
+
+        await manager.run(specs, worker)
+
+        assert updates
+        assert any(
+            next(item for item in items if item["todo_id"] == "two")["status"] == "failed"
+            for items in updates
+        )
+
+    asyncio.run(scenario())

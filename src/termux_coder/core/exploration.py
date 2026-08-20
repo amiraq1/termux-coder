@@ -160,10 +160,17 @@ class ExplorationManager:
         if asyncio.iscoroutine(result):
             await result
 
+    async def _notify_todos(self) -> None:
+        await self._notify(
+            "exploration_todos",
+            items=[asdict(item) for item in self.todos],
+        )
+
     async def start_task(self, task_id: str) -> ExplorationTask:
         task = self.task(task_id)
         task.start()
         self.set_todo_status(task_id, "running")
+        await self._notify_todos()
         await self._notify("exploration_task_start", task=task.snapshot())
         return task
 
@@ -198,6 +205,7 @@ class ExplorationManager:
         task = self.task(task_id)
         task.finish(status, error)
         self.set_todo_status(task_id, "done" if status == "done" else "failed")
+        await self._notify_todos()
         await self._notify("exploration_task_end", task=task.snapshot())
 
     def cancel(self) -> None:
@@ -216,8 +224,14 @@ class ExplorationManager:
             if self._cancelled:
                 task.finish("cancelled")
                 self.set_todo_status(task.task_id, "failed")
+                await self._notify_todos()
                 return None
             async with semaphore:
+                if self._cancelled:
+                    task.finish("cancelled")
+                    self.set_todo_status(task.task_id, "failed")
+                    await self._notify_todos()
+                    return None
                 await self.start_task(task.task_id)
                 try:
                     result = await worker(task)
