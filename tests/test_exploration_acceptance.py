@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from termux_coder.core.agent import Agent
-from termux_coder.core.exploration import ExplorationEventStream, ExplorationManager
+from termux_coder.core.exploration import ExplorationEventStream, ExplorationManager, ExplorationEvent
 from termux_coder.security.jail import WorkspaceJail
 
 
@@ -40,31 +40,33 @@ def test_read_only_exploration_acceptance_cycle(tmp_path):
         ui = EventUI()
         stream = ExplorationEventStream()
 
-        async def sink(kind, payload):
-            await ui.on_event(kind, **payload)
+        async def sink(event: ExplorationEvent):
+            await ui.on_event("exploration_update", event=event.model_dump(mode="json"))
 
         stream.subscribe(sink)
         agent = Agent.__new__(Agent)
         agent.jail = WorkspaceJail(tmp_path)
         agent.ui = ui
+        agent.settings = SimpleNamespace(exploration_max_tasks=6)
         agent.exploration_stream = stream
-        agent.exploration_manager = ExplorationManager(
-            max_tasks=6,
-            on_update=stream,
-        )
+        agent.exploration_manager = None
 
-        await agent._run_read_only_exploration()
+        await agent._run_read_only_exploration("turn_123")
 
         kinds = [kind for kind, _ in ui.events]
         assert kinds[0] == "exploration_start"
         assert kinds[-1] == "exploration_end"
-        assert kinds.count("exploration_task_start") == 6
-        assert kinds.count("exploration_task_end") == 6
-        tool_events = [payload for kind, payload in ui.events if kind == "exploration_tool_result"]
+
+        updates = [payload["event"] for kind, payload in ui.events if kind == "exploration_update"]
+
+        event_kinds = [e["kind"] for e in updates]
+        assert event_kinds.count("task_start") == 6
+        assert event_kinds.count("task_completed") == 6
+
+        tool_events = [e for e in updates if e["kind"] == "task_progress"]
         assert tool_events
-        assert all(event["tool"] == "read_file" for event in tool_events)
-        assert all(event["task"]["status"] in {"running", "done"} for event in tool_events)
+        assert all("read_file" in e["detail"] for e in tool_events)
         assert len(agent.exploration_manager.tasks) == 6
-        assert all(task.status == "done" for task in agent.exploration_manager.tasks.values())
+        assert all(task.status == "completed" for task in agent.exploration_manager.tasks.values())
 
     asyncio.run(scenario())

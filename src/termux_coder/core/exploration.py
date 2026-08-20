@@ -5,10 +5,10 @@ import time
 from collections import deque
 from typing import Any, Awaitable, Callable, Iterable, Literal, List, Set, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 TaskStatus = Literal["pending", "running", "completed", "failed", "timeout", "cancelled"]
-TodoStatus = Literal["pending", "running", "completed", "failed"]
+TodoStatus = Literal["pending", "running", "completed", "failed", "timeout", "cancelled"]
 
 READ_ONLY_TOOLS = frozenset({"list_dir", "read_file", "search_text", "repo_map"})
 
@@ -38,9 +38,9 @@ class ExplorationTask(BaseModel):
     events: List[str] = Field(default_factory=list)
     related_paths: Set[str] = Field(default_factory=set)
     error: Optional[str] = None
+    max_events: int = 40
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def start(self) -> None:
         if self.status != "pending":
@@ -53,9 +53,8 @@ class ExplorationTask(BaseModel):
 
     def record(self, line: str, *, tokens: int = 0, paths: Iterable[str] = ()) -> None:
         self.events.append(str(line))
-        # Keep only the last 40 events to prevent bloat if needed, but Pydantic list doesn't have maxlen
-        if len(self.events) > 40:
-            self.events = self.events[-40:]
+        if len(self.events) > self.max_events:
+            self.events = self.events[-self.max_events:]
         self.token_count += max(0, int(tokens))
         for p in paths:
             self.related_paths.add(p)
@@ -90,7 +89,7 @@ class TodoItem(BaseModel):
 
 
 Worker = Callable[[ExplorationTask], Awaitable[Any]]
-UpdateCallback = Callable[[str, dict[str, Any]], Awaitable[None] | None]
+UpdateCallback = Callable[[ExplorationEvent], Awaitable[None] | None]
 
 
 class ExplorationEventStream:
@@ -107,14 +106,14 @@ class ExplorationEventStream:
         if callback in self._subscribers:
             self._subscribers.remove(callback)
 
-    async def publish(self, kind: str, payload: dict[str, Any]) -> None:
+    async def publish(self, event: ExplorationEvent) -> None:
         for callback in tuple(self._subscribers):
-            result = callback(kind, payload)
+            result = callback(event)
             if asyncio.iscoroutine(result):
                 await result
 
-    async def __call__(self, kind: str, payload: dict[str, Any]) -> None:
-        await self.publish(kind, payload)
+    async def __call__(self, event: ExplorationEvent) -> None:
+        await self.publish(event)
 
 
 class ExplorationManager:
@@ -152,6 +151,7 @@ class ExplorationManager:
                 task_id=spec.task_id,
                 title=spec.title,
                 scope=spec.scope,
+                max_events=self.max_events_per_task,
             )
             for spec in specs
         }
@@ -171,25 +171,25 @@ class ExplorationManager:
         except KeyError as exc:
             raise KeyError(f"unknown exploration task: {task_id}") from exc
 
-    async def _notify(self, kind: str, **payload: Any) -> None:
+    async def _notify(self, kind: str, task_id: str, detail: str = "", paths: Iterable[str] = ()) -> None:
         if self.on_update is None:
             return
-        result = self.on_update(kind, payload)
+        event = ExplorationEvent(
+            kind=kind,
+            turn_id=self.turn_id,
+            task_id=task_id,
+            detail=detail,
+            related_paths=list(paths)
+        )
+        result = self.on_update(event)
         if asyncio.iscoroutine(result):
             await result
-
-    async def _notify_todos(self) -> None:
-        await self._notify(
-            "exploration_todos",
-            items=[item.model_dump(mode="json") for item in self.todos],
-        )
 
     async def start_task(self, task_id: str) -> ExplorationTask:
         task = self.task(task_id)
         task.start()
         self.set_todo_status(task_id, "running")
-        await self._notify_todos()
-        await self._notify("exploration_task_start", task=task.snapshot())
+        await self._notify("task_start", task_id)
         return task
 
     async def record_tool(
@@ -205,14 +205,13 @@ class ExplorationManager:
             raise PermissionError(f"exploration is read-only; tool denied: {tool}")
         task = self.task(task_id)
         task.record(f"{tool.upper()} {detail}".strip(), tokens=tokens, paths=paths)
+
+        detail_msg = f"{tool}: {detail}"
         await self._notify(
-            "exploration_tool_result",
-            task_id=task_id,
-            tool=tool,
-            detail=detail,
-            tokens=max(0, int(tokens)),
-            paths=list(paths),
-            task=task.snapshot(),
+            "task_progress",
+            task_id,
+            detail=detail_msg,
+            paths=paths
         )
 
     async def finish_task(
@@ -224,9 +223,8 @@ class ExplorationManager:
     ) -> None:
         task = self.task(task_id)
         task.finish(status, error)
-        self.set_todo_status(task_id, "completed" if status == "completed" else "failed")
-        await self._notify_todos()
-        await self._notify("exploration_task_end", task=task.snapshot())
+        self.set_todo_status(task_id, status)
+        await self._notify(f"task_{status}", task_id, detail=error or "")
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -240,17 +238,15 @@ class ExplorationManager:
         tasks = self.configure(specs)
         semaphore = asyncio.Semaphore(self.max_tasks)
 
+        await self._notify("dissection_start", "dissect_all")
+
         async def guarded(task: ExplorationTask) -> Any:
             if self._cancelled:
-                task.finish("cancelled")
-                self.set_todo_status(task.task_id, "failed")
-                await self._notify_todos()
+                await self.finish_task(task.task_id, status="cancelled")
                 return None
             async with semaphore:
                 if self._cancelled:
-                    task.finish("cancelled")
-                    self.set_todo_status(task.task_id, "failed")
-                    await self._notify_todos()
+                    await self.finish_task(task.task_id, status="cancelled")
                     return None
                 await self.start_task(task.task_id)
                 try:
@@ -260,21 +256,41 @@ class ExplorationManager:
                     raise
                 except TimeoutError:
                     await self.finish_task(task.task_id, status="timeout", error="timeout after execution limit")
-                    # don't re-raise timeout for exploration task, just mark failed
                     return None
                 except Exception as exc:
                     await self.finish_task(task.task_id, status="failed", error=str(exc))
-                    return None # Don't raise, just fail task
+                    return None
                 await self.finish_task(task.task_id)
                 return result
 
-        return list(await asyncio.gather(*(guarded(task) for task in tasks)))
+        results = list(await asyncio.gather(*(guarded(task) for task in tasks)))
+        await self._notify("dissection_complete", "dissect_all")
+        return results
+
+    def get_summary(self) -> str:
+        completed = sum(1 for t in self.todos if t.status == "completed")
+        total = len(self.todos)
+
+        summary = f"Coverage: {completed}/{total} completed\n"
+        for t in self.todos:
+            if t.status != "completed":
+                task = self.tasks[t.todo_id]
+                summary += f"FAILED: {task.scope}\n"
+                summary += f"Reason: {task.error or t.status}\n"
+
+        if completed == total:
+            summary += "Result: full repository understanding\n"
+        else:
+            summary += "Result: partial dissection; not full repository understanding\n"
+
+        return summary
 
     def snapshot(self) -> dict[str, Any]:
         return {
             "tasks": [task.snapshot() for task in self.tasks.values()],
             "todos": [item.model_dump(mode="json") for item in self.todos],
             "cancelled": self._cancelled,
+            "summary": self.get_summary()
         }
 
 __all__ = [
