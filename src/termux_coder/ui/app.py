@@ -689,6 +689,11 @@ class TermuxCoderApp(App):
         self._exploration_todos: list[dict] = []
         self._exploration_visible = False
         self._exploration_last_render = 0.0
+        self._exploration_render_interval = 0.16
+        self._exploration_pending_tasks: dict[str, dict] = {}
+        self._exploration_pending_todos: list[dict] | None = None
+        self._exploration_render_dirty = False
+        self._exploration_render_scheduled = False
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -724,6 +729,9 @@ class TermuxCoderApp(App):
         self._exploration_visible = True
         self._exploration_todos = list(todos)
         self._exploration_widgets.clear()
+        self._exploration_pending_tasks.clear()
+        self._exploration_pending_todos = None
+        self._exploration_render_dirty = False
         try:
             panel = self.query_one("#exploration-panel")
             panel.add_class("-visible")
@@ -736,8 +744,48 @@ class TermuxCoderApp(App):
         for task in tasks:
             self.update_exploration_task(task)
         self.update_exploration_todos(todos)
+        self._flush_exploration_updates(force=True)
+
+    def _schedule_exploration_flush(self) -> None:
+        if self._exploration_render_scheduled:
+            return
+        elapsed = time.monotonic() - self._exploration_last_render
+        delay = max(0.0, self._exploration_render_interval - elapsed)
+        if delay <= 0:
+            self._flush_exploration_updates()
+            return
+        self._exploration_render_scheduled = True
+        self.set_timer(delay, self._on_exploration_timer)
+
+    def _on_exploration_timer(self) -> None:
+        self._exploration_render_scheduled = False
+        self._flush_exploration_updates(force=True)
+
+    def _flush_exploration_updates(self, *, force: bool = False) -> None:
+        if not self._exploration_render_dirty:
+            return
+        if not force and time.monotonic() - self._exploration_last_render < self._exploration_render_interval:
+            self._schedule_exploration_flush()
+            return
+        pending_tasks = list(self._exploration_pending_tasks.values())
+        pending_todos = self._exploration_pending_todos
+        self._exploration_pending_tasks.clear()
+        self._exploration_pending_todos = None
+        self._exploration_render_dirty = False
+        for task in pending_tasks:
+            self._apply_exploration_task(task)
+        if pending_todos is not None:
+            self._apply_exploration_todos(pending_todos)
+        self._render_exploration_header()
+        self._exploration_last_render = time.monotonic()
 
     def update_exploration_task(self, task: dict) -> None:
+        task_id = str(task.get("task_id", "task"))
+        self._exploration_pending_tasks[task_id] = dict(task)
+        self._exploration_render_dirty = True
+        self._schedule_exploration_flush()
+
+    def _apply_exploration_task(self, task: dict) -> None:
         task_id = str(task.get("task_id", "task"))
         widget = self._exploration_widgets.get(task_id)
         if widget is None:
@@ -748,9 +796,13 @@ class TermuxCoderApp(App):
             except NoMatches:
                 return
         widget.update_task(task)
-        self._render_exploration_header()
 
     def update_exploration_todos(self, items: list[dict]) -> None:
+        self._exploration_pending_todos = [dict(item) for item in items]
+        self._exploration_render_dirty = True
+        self._schedule_exploration_flush()
+
+    def _apply_exploration_todos(self, items: list[dict]) -> None:
         self._exploration_todos = list(items)
         glyphs = current_glyphs()
         rendered = [f"TODOS  {len(items)} items"]
@@ -779,6 +831,7 @@ class TermuxCoderApp(App):
             pass
 
     def finish_exploration(self) -> None:
+        self._flush_exploration_updates(force=True)
         self._render_exploration_header()
 
     # ── State ─────────────────────────────────────────────
