@@ -101,3 +101,28 @@ def test_event_stream_fans_out_and_supports_unsubscribe():
         assert [kind for kind, _ in second] == ["exploration_task_start"]
 
     asyncio.run(scenario())
+
+
+def test_cancel_stops_pending_tasks_before_worker_execution():
+    async def scenario():
+        manager = ExplorationManager(max_tasks=2)
+        specs = [
+            ExplorationTaskSpec("one", "one", "src"),
+            ExplorationTaskSpec("two", "two", "src"),
+        ]
+        started = []
+
+        async def worker(task):
+            started.append(task.task_id)
+            manager.cancel()
+            await asyncio.sleep(0)
+            return task.task_id
+
+        result = await manager.run(specs, worker)
+
+        assert result[0] == "one"
+        assert result[1] is None
+        assert started == ["one"]
+        assert manager.snapshot()["cancelled"] is True
+
+    asyncio.run(scenario())

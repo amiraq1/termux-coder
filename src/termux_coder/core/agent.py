@@ -373,11 +373,13 @@ class Agent:
                     error=result.error or "",
                 )
         finally:
+            self.exploration_manager.cancel()
             self._clear_turn_research_context()
             # Always release the TUI busy state, including failure and cancellation.
             await self.ui.on_event("turn_end")
 
     async def close(self) -> None:
+        self.exploration_manager.cancel()
         if self.lsp is not None:
             await self.lsp.shutdown()
         if self.store:
