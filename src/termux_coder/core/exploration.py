@@ -77,6 +77,30 @@ Worker = Callable[[ExplorationTask], Awaitable[Any]]
 UpdateCallback = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 
 
+class ExplorationEventStream:
+    """Small async fan-out stream for live exploration updates."""
+
+    def __init__(self) -> None:
+        self._subscribers: list[UpdateCallback] = []
+
+    def subscribe(self, callback: UpdateCallback) -> None:
+        if callback not in self._subscribers:
+            self._subscribers.append(callback)
+
+    def unsubscribe(self, callback: UpdateCallback) -> None:
+        if callback in self._subscribers:
+            self._subscribers.remove(callback)
+
+    async def publish(self, kind: str, payload: dict[str, Any]) -> None:
+        for callback in tuple(self._subscribers):
+            result = callback(kind, payload)
+            if asyncio.iscoroutine(result):
+                await result
+
+    async def __call__(self, kind: str, payload: dict[str, Any]) -> None:
+        await self.publish(kind, payload)
+
+
 class ExplorationManager:
     """Bounded read-only task manager for repository exploration."""
 
@@ -217,6 +241,7 @@ class ExplorationManager:
 
 
 __all__ = [
+    "ExplorationEventStream",
     "ExplorationManager",
     "ExplorationTask",
     "ExplorationTaskSpec",

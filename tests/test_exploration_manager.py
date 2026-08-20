@@ -72,3 +72,32 @@ def test_event_history_is_bounded_per_task():
         assert list(manager.task("core").events) == ["READ_FILE 3", "READ_FILE 4"]
 
     asyncio.run(scenario())
+
+
+def test_event_stream_fans_out_and_supports_unsubscribe():
+    async def scenario():
+        from termux_coder.core.exploration import ExplorationEventStream
+
+        stream = ExplorationEventStream()
+        first = []
+        second = []
+
+        async def first_sink(kind, payload):
+            first.append((kind, payload))
+
+        def second_sink(kind, payload):
+            second.append((kind, payload))
+
+        stream.subscribe(first_sink)
+        stream.subscribe(second_sink)
+        await stream.publish("exploration_task_start", {"task_id": "core"})
+        stream.unsubscribe(second_sink)
+        await stream.publish("exploration_task_end", {"task_id": "core"})
+
+        assert [kind for kind, _ in first] == [
+            "exploration_task_start",
+            "exploration_task_end",
+        ]
+        assert [kind for kind, _ in second] == ["exploration_task_start"]
+
+    asyncio.run(scenario())
