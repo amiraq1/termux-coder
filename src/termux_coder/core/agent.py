@@ -16,7 +16,7 @@ from ..context import (
 from ..providers.router import FAST_EXCLUDE
 from .recovery import recover_tool_calls, sanitize_tool_calls
 from ..security.audit import AuditLog
-from ..security.jail import WorkspaceJail
+from ..security.jail import JailViolation, WorkspaceJail
 from ..security.policy import CommandPolicy, PolicyEngine
 from .context import SessionState, build_system_prompt
 from .registry import ToolRegistry
@@ -350,6 +350,11 @@ class Agent:
                 items,
                 current_task=user_text,
                 active_task_id=self._active_bundle.task_id if self._active_bundle else None,
+                active_related_paths=(
+                    set(self._active_bundle.related_paths)
+                    if self._active_bundle
+                    else None
+                ),
             )
 
         provider = RouterProviderAdapter(self.router, self.ui, user_text)
@@ -401,6 +406,31 @@ class Agent:
         if self.store:
             self.store.close()
 
+    def _candidate_paths_from_arguments(self, arguments: dict) -> list[str]:
+        candidates: list[str] = []
+        if isinstance(arguments.get("path"), str):
+            candidates.append(arguments["path"])
+        operations = arguments.get("operations")
+        if isinstance(operations, list):
+            candidates.extend(
+                operation.get("path")
+                for operation in operations
+                if isinstance(operation, dict) and isinstance(operation.get("path"), str)
+            )
+        return candidates
+
+    def _extend_active_bundle_paths(self, paths: list[str]) -> None:
+        if self._active_bundle is None:
+            return
+        safe_paths: list[str] = []
+        for path in paths:
+            try:
+                safe_paths.append(self.jail.rel(self.jail.check(path)))
+            except (JailViolation, ValueError, TypeError, OSError):
+                continue
+        if safe_paths:
+            self._active_bundle = self._active_bundle.add_paths(safe_paths)
+
     def _attach_active_bundle(self, message: dict) -> dict:
         if not self._active_bundle or message.get("role") not in {"user", "assistant", "tool"}:
             return message
@@ -410,6 +440,12 @@ class Agent:
         return enriched
 
     def _persist(self, message: dict) -> None:
+        if self._active_bundle is not None:
+            paths = message.get("related_paths")
+            if isinstance(paths, (list, tuple, set)):
+                self._extend_active_bundle_paths(
+                    [path for path in paths if isinstance(path, str)]
+                )
         if not self.store or not self.session_id:
             return
         self.store.save_message(self.session_id, self._seq, message)
@@ -474,6 +510,11 @@ class Agent:
                     items,
                     current_task=user_text,
                     active_task_id=self._active_bundle.task_id if self._active_bundle else None,
+                    active_related_paths=(
+                        set(self._active_bundle.related_paths)
+                        if self._active_bundle
+                        else None
+                    ),
                 )
                 stats = self.assembler.stats(items)
 
@@ -567,6 +608,9 @@ class Agent:
                             policy_args = json.loads(call["function"]["arguments"] or "{}")
                         except Exception:
                             policy_args = {}
+                        self._extend_active_bundle_paths(
+                            self._candidate_paths_from_arguments(policy_args)
+                        )
                         decision = self.policy_engine.evaluate_tool(name, policy_args)
                         if not decision.allowed:
                             result = f"tool blocked by policy: {decision.reason}"

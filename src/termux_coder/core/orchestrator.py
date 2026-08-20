@@ -32,6 +32,7 @@ from ..models.contracts import (
     ToolResult,
 )
 from ..security.audit import AuditLog
+from ..security.jail import JailViolation
 from ..providers.router import ModelRouter
 from ..security.policy import Permission, PolicyEngine
 from .registry import ToolRegistry
@@ -246,6 +247,7 @@ class AgentOrchestrator:
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
         self._task_id: str | None = None
+        self._related_paths: set[str] = set()
         self._history: list[dict] = []
         self._pending_approvals: dict[str, EvaluatedToolCall] = {}
         self._cancel_event = asyncio.Event()
@@ -284,6 +286,32 @@ class AgentOrchestrator:
             to_state=new_state.value,
         )
 
+    def _record_call_paths(self, call: ToolCall) -> None:
+        jail = getattr(self.ctx, "jail", None)
+        if jail is None:
+            return
+        arguments = call.arguments if isinstance(call.arguments, dict) else {}
+        candidates: list[object] = []
+        if isinstance(arguments.get("path"), str):
+            candidates.append(arguments["path"])
+        operations = arguments.get("operations")
+        if isinstance(operations, list):
+            candidates.extend(
+                operation.get("path")
+                for operation in operations
+                if isinstance(operation, dict)
+            )
+        for candidate in candidates:
+            if not isinstance(candidate, str) or not candidate.strip():
+                continue
+            try:
+                resolved = jail.check(candidate)
+                relative = jail.rel(resolved)
+            except (JailViolation, ValueError, TypeError, OSError):
+                continue
+            if relative != ".":
+                self._related_paths.add(relative.replace("\\", "/"))
+
     def _append_message(self, messages: list[dict], message: dict) -> None:
         """Append a bundle-tagged message and persist it unless ephemeral."""
         if message.get("role") in {"assistant", "tool"}:
@@ -292,6 +320,9 @@ class AgentOrchestrator:
                 message.setdefault("turn_id", self._turn_id)
             if self._task_id:
                 message.setdefault("task_id", self._task_id)
+            related_paths = getattr(self, "_related_paths", set())
+            if related_paths:
+                message.setdefault("related_paths", sorted(related_paths))
         messages.append(message)
         if self._message_sink is not None and not message.get("_ephemeral", False):
             self._message_sink(message)
@@ -1022,6 +1053,12 @@ class AgentOrchestrator:
         )
         self._turn_id = user_message.get("turn_id") or uuid.uuid4().hex[:12]
         self._task_id = user_message.get("task_id") or f"task-{self._turn_id}"
+        existing_paths = user_message.get("related_paths")
+        self._related_paths = {
+            str(path).replace("\\", "/")
+            for path in (existing_paths if isinstance(existing_paths, (list, tuple, set)) else ())
+            if isinstance(path, str)
+        }
         self._trace_step = 0
         self._trace_steps.clear()
         self._cancel_event.clear()
@@ -1453,6 +1490,7 @@ class AgentOrchestrator:
                 else:
                     self._transition(TurnState.EXECUTING)
                 for ecall in ready:
+                    self._record_call_paths(ecall.call)
                     if self._is_cancelled():
                         break
                     await self._on_event(

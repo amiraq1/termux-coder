@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .turn_bundle import bundle_metadata
+
 
 @dataclass
 class ContextItem:
@@ -52,11 +54,7 @@ class PriorityEngine:
         content = message.get("content") or ""
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
-        bundle = {
-            key: message[key]
-            for key in ("turn_id", "task_id")
-            if isinstance(message.get(key), str) and message[key]
-        }
+        bundle = bundle_metadata(message)
 
         # P0: system prompt
         if role == "system":

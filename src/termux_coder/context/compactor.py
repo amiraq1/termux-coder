@@ -104,12 +104,18 @@ class CompactionStrategy:
         source_seqs = []
         task_ids = set()
         turn_ids = set()
+        related_paths = set()
         for item in items:
             source_seqs.extend(item.source_messages)
             if item.metadata.get("task_id"):
                 task_ids.add(item.metadata["task_id"])
             if item.metadata.get("turn_id"):
                 turn_ids.add(item.metadata["turn_id"])
+            item_paths = item.metadata.get("related_paths", [])
+            if isinstance(item_paths, (list, tuple, set)):
+                related_paths.update(
+                    path for path in item_paths if isinstance(path, str)
+                )
 
         return ContextItem(
             content=summary,
@@ -121,6 +127,7 @@ class CompactionStrategy:
                 "original_items": len(items),
                 "task_ids": sorted(task_ids),
                 "turn_ids": sorted(turn_ids),
+                "related_paths": sorted(related_paths),
             },
         )
 

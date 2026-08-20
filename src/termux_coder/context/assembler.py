@@ -22,6 +22,7 @@ class ContextAssembler:
         items: list[ContextItem],
         current_task: str = "",
         active_task_id: str | None = None,
+        active_related_paths: set[str] | None = None,
     ) -> list[dict]:
         """
         تحويل ContextItems إلى رسائل LLM.
@@ -33,6 +34,7 @@ class ContextAssembler:
             items,
             current_task=current_task,
             active_task_id=active_task_id,
+            active_related_paths=active_related_paths,
         )
 
         messages = []

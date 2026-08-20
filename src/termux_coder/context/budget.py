@@ -31,6 +31,7 @@ class BudgetManager:
         items: list[ContextItem],
         current_task: str = "",
         active_task_id: str | None = None,
+        active_related_paths: set[str] | None = None,
     ) -> list[ContextItem]:
         """
         ضبط العناصر لتناسب الميزانية.
@@ -50,10 +51,13 @@ class BudgetManager:
         sorted_items = sorted(items, key=lambda x: -x.priority)
 
         def is_active(item: ContextItem) -> bool:
-            return bool(
-                active_task_id
-                and item.metadata.get("task_id") == active_task_id
-            )
+            if active_task_id and item.metadata.get("task_id") == active_task_id:
+                return True
+            if active_related_paths:
+                item_paths = item.metadata.get("related_paths", [])
+                if isinstance(item_paths, (list, tuple, set)):
+                    return bool(set(item_paths) & active_related_paths)
+            return False
 
         # المرحلة A: تلخيص P5 القديم، لكن لا نلمس عناصر Turn Bundle النشط.
         kept = []

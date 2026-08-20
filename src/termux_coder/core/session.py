@@ -108,6 +108,21 @@ class SessionStore:
         for key in ("turn_id", "task_id"):
             if isinstance(message.get(key), str) and message[key]:
                 extra[key] = message[key]
+        paths = message.get("related_paths")
+        if isinstance(paths, (list, tuple, set)):
+            safe_paths = sorted(
+                {
+                    str(path).replace("\\", "/")
+                    for path in paths
+                    if isinstance(path, str)
+                    and path.strip()
+                    and not path.startswith("/")
+                    and path != "."
+                    and ".." not in path.split("/")
+                }
+            )
+            if safe_paths:
+                extra["related_paths"] = safe_paths
         self.conn.execute(
             "INSERT OR REPLACE INTO messages (session_id, seq, role, content, extra) "
             "VALUES (?,?,?,?,?)",
