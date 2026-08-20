@@ -25,6 +25,8 @@ def test_repo_map_timeout_returns_without_blocking_tui():
         agent.settings = SimpleNamespace(repo_map_timeout_s=0.01)
         agent.repomap = SimpleNamespace(render_budget=slow_render)
         agent._repo_map_task = None
+        agent._active_bundle = None
+        agent.audit = SimpleNamespace(log=lambda *a, **k: None)
         agent.ui = ui
 
         started = time.monotonic()
@@ -33,7 +35,8 @@ def test_repo_map_timeout_returns_without_blocking_tui():
 
         assert result is None
         assert elapsed < 0.04
-        assert ui.events[0][0] == "repo_map_timeout"
+        assert ui.events[0][0] == "repo_map_start"
+        assert ui.events[-1][0] == "repo_map_timeout"
 
         # Let the worker finish so the test does not leave background work alive.
         await asyncio.sleep(0.06)

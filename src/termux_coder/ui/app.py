@@ -418,11 +418,16 @@ class TextualUI(AgentUI):
         elif kind == "exploration_end":
             self.app.finish_exploration()
 
+        elif kind == "repo_map_start":
+            self.app.start_repo_map_spinner()
+            return
+
         elif kind == "map_ready":
-            # Repository mapping remains internal; keep it out of the activity feed.
+            self.app.stop_repo_map_spinner()
             return
 
         elif kind in {"repo_map_timeout", "repo_map_failed"}:
+            self.app.stop_repo_map_spinner()
             reason = payload.get("reason") or payload.get("error") or "repository map unavailable"
             self.app.update_activity("WARNING", str(reason))
             self._put(
@@ -569,6 +574,7 @@ class TextualUI(AgentUI):
             self._put(Static(Text("stopped: too many tool rounds", style="yellow")))
 
         elif kind == "turn_end":
+            self.app.stop_repo_map_spinner()
             self.app.set_phase("turn_end", {})
             self.app.set_busy(False)
 
@@ -659,6 +665,8 @@ class TermuxCoderApp(App):
     ChatFeed .conversation-message.-selected { background: #18283d; border-left: tall #6ca0ff; }
     #scroll-bottom { height: 1; margin: 0 1; display: none; min-width: 18; }
     #scroll-bottom.-visible { display: block; }
+    #repo-map-spinner { height: 1; margin: 0 1; padding: 0 0; display: none; color: #9ce3cb; }
+    #repo-map-spinner.-visible { display: block; }
     #actions { height: 3; margin: 0 1; display: none; }
     #actions.-visible { display: block; }
     #actions Button { min-width: 16; margin: 0 1; }
@@ -694,6 +702,35 @@ class TermuxCoderApp(App):
         self._exploration_pending_todos: list[dict] | None = None
         self._exploration_render_dirty = False
         self._exploration_render_scheduled = False
+        self._repo_map_timer = None
+        self._repo_map_frame = 0
+        self._repo_map_frames = (
+            ("◌", "○", "◍", "●")
+            if current_glyphs().diamond == "◈"
+            else (".", "o", "O", "@")
+        )
+
+    def start_repo_map_spinner(self) -> None:
+        self._repo_map_frame = 0
+        spinner = self.query_one("#repo-map-spinner", Static)
+        spinner.update(f"{self._repo_map_frames[0]} Building repository map...")
+        spinner.add_class("-visible")
+        if self._repo_map_timer is None:
+            self._repo_map_timer = self.set_interval(0.12, self._tick_repo_map_spinner)
+        else:
+            self._repo_map_timer.resume()
+
+    def _tick_repo_map_spinner(self) -> None:
+        spinner = self.query_one("#repo-map-spinner", Static)
+        frame = self._repo_map_frames[self._repo_map_frame]
+        spinner.update(f"{frame} Building repository map...")
+        self._repo_map_frame = (self._repo_map_frame + 1) % len(self._repo_map_frames)
+
+    def stop_repo_map_spinner(self) -> None:
+        spinner = self.query_one("#repo-map-spinner", Static)
+        spinner.remove_class("-visible")
+        if self._repo_map_timer is not None:
+            self._repo_map_timer.pause()
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -706,6 +743,7 @@ class TermuxCoderApp(App):
                     yield VerticalScroll(id="exploration-tasks")
                     yield Static(id="exploration-todos")
                 yield ChatFeed(self, id="feed")
+                yield Static(id="repo-map-spinner")
                 yield Static(id="status")
                 yield Button(f"{current_glyphs().down} New output", id="scroll-bottom")
                 yield Horizontal(id="actions")
