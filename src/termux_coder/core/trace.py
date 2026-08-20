@@ -78,12 +78,33 @@ class TraceStore:
             # Trace must never bring down a coding turn.
             return
 
-    def turn_start(self, trace_id: str, user_text: str, *, model: str | None = None) -> None:
+    @staticmethod
+    def _bundle_fields(
+        task_id: str | None,
+        related_paths: list[str] | tuple[str, ...] | None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        if task_id:
+            fields["task_id"] = task_id
+        if related_paths:
+            fields["related_paths"] = sorted({str(path) for path in related_paths})
+        return fields
+
+    def turn_start(
+        self,
+        trace_id: str,
+        user_text: str,
+        *,
+        model: str | None = None,
+        task_id: str | None = None,
+        related_paths: list[str] | tuple[str, ...] | None = None,
+    ) -> None:
         self.append(
             trace_id,
             "turn_start",
             user=self._summary(user_text),
             model=model or "",
+            **self._bundle_fields(task_id, related_paths),
         )
 
     def tool_call(
@@ -95,6 +116,8 @@ class TraceStore:
         tool: str,
         arguments: dict[str, Any],
         round_index: int,
+        task_id: str | None = None,
+        related_paths: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         payload: dict[str, Any] = {
             "step": step,
@@ -109,7 +132,12 @@ class TraceStore:
         # network payloads remain fingerprints, never replay material.
         if tool in REPLAY_SAFE_TOOLS:
             payload["arguments"] = arguments
-        self.append(trace_id, "tool_call", **payload)
+        self.append(
+            trace_id,
+            "tool_call",
+            **payload,
+            **self._bundle_fields(task_id, related_paths),
+        )
 
     def tool_result(
         self,
@@ -122,6 +150,8 @@ class TraceStore:
         duration_ms: int,
         content: str = "",
         error_code: str | None = None,
+        task_id: str | None = None,
+        related_paths: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.append(
             trace_id,
@@ -133,6 +163,7 @@ class TraceStore:
             duration_ms=duration_ms,
             result=self._summary(content),
             error_code=error_code or "",
+            **self._bundle_fields(task_id, related_paths),
         )
 
     def turn_end(
@@ -142,6 +173,8 @@ class TraceStore:
         state: str,
         rounds: int,
         error: str | None = None,
+        task_id: str | None = None,
+        related_paths: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.append(
             trace_id,
@@ -149,6 +182,7 @@ class TraceStore:
             state=state,
             rounds=rounds,
             error=(error or "")[:500],
+            **self._bundle_fields(task_id, related_paths),
         )
 
     def read(self, trace_id: str) -> list[dict[str, Any]]:

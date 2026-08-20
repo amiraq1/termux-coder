@@ -731,6 +731,8 @@ class AgentOrchestrator:
         self.audit.log(
             "verification_result",
             turn_id=self._turn_id,
+            task_id=self._task_id,
+            related_paths=sorted(self._related_paths),
             round=round_idx,
             status=result.status.value,
             exit_code=result.exit_code,
@@ -1087,7 +1089,12 @@ class AgentOrchestrator:
         )
         self._edit_requested = ModelRouter.looks_like_edit(user_text)
         if self._trace_store is not None:
-            self._trace_store.turn_start(self._turn_id, user_text)
+            self._trace_store.turn_start(
+                self._turn_id,
+                user_text,
+                task_id=self._task_id,
+                related_paths=sorted(self._related_paths),
+            )
         impact_ok, impact_error = await self._run_impact_analysis(user_text)
         if not impact_ok:
             if self._trace_store is not None:
@@ -1096,6 +1103,8 @@ class AgentOrchestrator:
                     state=self._state.value,
                     rounds=0,
                     error=impact_error,
+                    task_id=self._task_id,
+                    related_paths=sorted(self._related_paths),
                 )
             return TurnResult(
                 state=self._state,
@@ -1115,6 +1124,8 @@ class AgentOrchestrator:
                     state=self._state.value,
                     rounds=0,
                     error=research_error,
+                    task_id=self._task_id,
+                    related_paths=sorted(self._related_paths),
                 )
             return TurnResult(
                 state=self._state,
@@ -1204,6 +1215,8 @@ class AgentOrchestrator:
                             tool=call.name,
                             arguments=call.arguments,
                             round_index=round_idx,
+                            task_id=self._task_id,
+                            related_paths=sorted(self._related_paths),
                         )
 
                 suppressed_only = bool(
@@ -1512,6 +1525,8 @@ class AgentOrchestrator:
                             duration_ms=result.duration_ms,
                             content=result.to_content_str(),
                             error_code=result.error.code.value if result.error else None,
+                            task_id=self._task_id,
+                            related_paths=sorted(self._related_paths),
                         )
 
                     content = result.to_content_str(
@@ -1605,6 +1620,8 @@ class AgentOrchestrator:
                     self._turn_id,
                     state=self._state.value,
                     rounds=rounds_used,
+                    task_id=self._task_id,
+                    related_paths=sorted(self._related_paths),
                 )
             self._pending_approvals.clear()
 

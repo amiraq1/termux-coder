@@ -203,6 +203,76 @@ def test_priority_classification():
     assert item_tool.priority == 2  # recent tool
 
 
+def test_budget_fit_invokes_conversation_compaction_and_preserves_bundle_metadata(monkeypatch):
+    est = TokenEstimator()
+    budget = BudgetManager(max_tokens=30, output_reserve=10, estimator=est)
+    calls = []
+    original = CompactionStrategy.compact_conversation
+
+    def spy(self, items, current_task):
+        calls.append((len(items), current_task))
+        return original(self, items, current_task)
+
+    monkeypatch.setattr(CompactionStrategy, "compact_conversation", spy)
+    items = [
+        ContextItem(content="system prompt " * 5, kind="system", priority=0, compressible=False),
+        ContextItem(content="current request " * 5, kind="user", priority=0, compressible=False),
+        ContextItem(
+            content="inspect auth parser " * 8,
+            kind="user",
+            priority=5,
+            metadata={
+                "turn_id": "turn-old",
+                "task_id": "task-auth",
+                "related_paths": ["src/auth.py"],
+            },
+        ),
+        ContextItem(
+            content="auth parser was inspected " * 8,
+            kind="assistant",
+            priority=5,
+            metadata={
+                "turn_id": "turn-old",
+                "task_id": "task-auth",
+                "related_paths": ["src/auth.py"],
+            },
+        ),
+    ]
+
+    fitted = budget.fit(
+        items,
+        current_task="continue auth parser inspection",
+        active_task_id="task-current",
+        active_related_paths={"src/current.py"},
+    )
+
+    summaries = [item for item in fitted if item.kind == "summary"]
+    assert calls == [(2, "continue auth parser inspection")]
+    assert len(summaries) == 1
+    assert summaries[0].metadata["task_ids"] == ["task-auth"]
+    assert summaries[0].metadata["turn_ids"] == ["turn-old"]
+    assert summaries[0].metadata["related_paths"] == ["src/auth.py"]
+    assert "task_ids: task-auth" in summaries[0].content
+    assert "turn_ids: turn-old" in summaries[0].content
+    assert "related_paths: src/auth.py" in summaries[0].content
+
+    prepared = ContextAssembler(
+        est,
+        BudgetManager(max_tokens=30, output_reserve=10, estimator=est),
+    ).assemble(
+        items,
+        current_task="continue auth parser inspection",
+        active_task_id="task-current",
+        active_related_paths={"src/current.py"},
+    )
+    prepared_summary = next(
+        message for message in prepared if message["role"] == "system" and "Context bundle metadata" in message["content"]
+    )
+    assert "task_ids: task-auth" in prepared_summary["content"]
+    assert "turn_ids: turn-old" in prepared_summary["content"]
+    assert "related_paths: src/auth.py" in prepared_summary["content"]
+
+
 def test_old_conversation_is_compacted_into_task_summary():
     est = TokenEstimator()
     budget = BudgetManager(max_tokens=30, output_reserve=10, estimator=est)

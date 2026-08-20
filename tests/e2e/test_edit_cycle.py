@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 
+from termux_coder.core.trace import TraceStore
 from termux_coder.providers.mock import MockResponse
+from termux_coder.tools import fs
 
 from conftest import E2EUI, build_orchestrator
 
@@ -14,6 +17,82 @@ def patch_text(old: str, new: str) -> str:
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def test_turn_bundle_e2e_preserves_metadata_across_verify(e2e_components, tmp_path):
+    async def scenario():
+        components = e2e_components
+        components["registry"].register(
+            "read_file",
+            "Read a workspace file",
+            fs.ReadFileArgs,
+            fs.read_file,
+        )
+        trace = TraceStore(tmp_path / "traces.jsonl")
+        patch = patch_text('return "Hello, " + name', 'return f"Hello, {name}!"')
+        orch = build_orchestrator(
+            components,
+            [
+                MockResponse.with_tool("read-1", "read_file", {"path": "main.py"}),
+                MockResponse.with_tool(
+                    "patch-1",
+                    "apply_patch",
+                    {"path": "main.py", "patch": patch},
+                ),
+                MockResponse.text("Done."),
+            ],
+            trace_store=trace,
+        )
+        messages = [{
+            "role": "user",
+            "content": "Read main.py and update it safely",
+            "turn_id": "turn-e2e",
+            "task_id": "task-e2e",
+        }]
+        result = await orch.run_turn(messages)
+
+        assert result.state.value == "idle"
+        assert 'f"Hello, {name}!"' in (components["workspace"] / "main.py").read_text()
+
+        bundle_messages = [
+            message for message in messages if message.get("role") in {"assistant", "tool"}
+        ]
+        assert bundle_messages
+        assert all(message.get("turn_id") == "turn-e2e" for message in bundle_messages)
+        assert all(message.get("task_id") == "task-e2e" for message in bundle_messages)
+        path_messages = [
+            message for message in bundle_messages if message.get("related_paths")
+        ]
+        assert path_messages
+        assert all("main.py" in message["related_paths"] for message in path_messages)
+        assert any(
+            message.get("tool_call_id", "").startswith("verify:turn-e2e:")
+            for message in bundle_messages
+        )
+
+        audit_records = [
+            json.loads(line)
+            for line in components["audit"].path.read_text().splitlines()
+            if line.strip()
+        ]
+        verification = [
+            record for record in audit_records if record["event"] == "verification_result"
+        ]
+        assert verification
+        assert verification[-1]["turn_id"] == "turn-e2e"
+        assert verification[-1]["task_id"] == "task-e2e"
+        assert verification[-1]["related_paths"] == ["main.py"]
+
+        trace_records = trace.read("turn-e2e")
+        assert trace_records
+        assert all(record.get("task_id") == "task-e2e" for record in trace_records)
+        assert any(
+            record.get("event") == "tool_result"
+            and "main.py" in record.get("related_paths", [])
+            for record in trace_records
+        )
+
+    run(scenario())
 
 
 def test_successful_edit_cycle(e2e_components):

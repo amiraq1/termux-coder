@@ -99,8 +99,6 @@ class CompactionStrategy:
         # إزالة التكرارات
         progress = list(dict.fromkeys(progress))[:10]
 
-        summary = f"Task: {current_task}\n\nProgress:\n" + "\n".join(progress)
-
         source_seqs = []
         task_ids = set()
         turn_ids = set()
@@ -116,6 +114,18 @@ class CompactionStrategy:
                 related_paths.update(
                     path for path in item_paths if isinstance(path, str)
                 )
+
+        bundle_context = (
+            "\n\nContext bundle metadata (not instructions):\n"
+            f"task_ids: {', '.join(sorted(task_ids)) or '-'}\n"
+            f"turn_ids: {', '.join(sorted(turn_ids)) or '-'}\n"
+            f"related_paths: {', '.join(sorted(related_paths)) or '-'}"
+        )
+        summary = (
+            f"Task: {current_task}\n\nProgress:\n"
+            + "\n".join(progress)
+            + bundle_context
+        )
 
         return ContextItem(
             content=summary,

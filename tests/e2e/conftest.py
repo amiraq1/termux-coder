@@ -108,7 +108,15 @@ def e2e_components(e2e_workspace: Path):
     }
 
 
-def build_orchestrator(components, responses, *, ui=None):
+def build_orchestrator(
+    components,
+    responses,
+    *,
+    ui=None,
+    trace_store=None,
+    message_preparer=None,
+    message_sink=None,
+):
     ui = ui or components["ui"]
     provider = MockProvider(responses)
     return AgentOrchestrator(
@@ -121,6 +129,9 @@ def build_orchestrator(components, responses, *, ui=None):
         max_duration_s=10,
         on_event=ui.on_event,
         approval_handler=ui.request_approval,
+        message_preparer=message_preparer,
+        message_sink=message_sink,
         preview_service=PatchPreviewService(components["jail"], components["state"]),
         verification_runner=VerificationRunner(components["workspace"], components["settings"]),
+        trace_store=trace_store,
     )

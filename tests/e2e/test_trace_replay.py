@@ -12,7 +12,13 @@ from tests.e2e.conftest import build_orchestrator
 
 def test_trace_store_persists_replay_safe_arguments_only(tmp_path):
     store = TraceStore(tmp_path / "traces.jsonl")
-    store.turn_start("t1", "read main.py", model="demo")
+    store.turn_start(
+        "t1",
+        "read main.py",
+        model="demo",
+        task_id="task-read",
+        related_paths=["main.py"],
+    )
     store.tool_call(
         "t1",
         step=1,
@@ -20,6 +26,8 @@ def test_trace_store_persists_replay_safe_arguments_only(tmp_path):
         tool="read_file",
         arguments={"path": "main.py"},
         round_index=0,
+        task_id="task-read",
+        related_paths=["main.py"],
     )
     store.tool_call(
         "t1",
@@ -28,10 +36,21 @@ def test_trace_store_persists_replay_safe_arguments_only(tmp_path):
         tool="run_command",
         arguments={"command": "echo secret"},
         round_index=1,
+        task_id="task-read",
+        related_paths=["main.py"],
     )
-    store.turn_end("t1", state="idle", rounds=2)
+    store.turn_end(
+        "t1",
+        state="idle",
+        rounds=2,
+        task_id="task-read",
+        related_paths=["main.py"],
+    )
 
     records = store.read("t1")
+    assert records[0]["task_id"] == "task-read"
+    assert records[0]["related_paths"] == ["main.py"]
+    assert all(record["task_id"] == "task-read" for record in records)
     calls = [record for record in records if record["event"] == "tool_call"]
     assert calls[0]["arguments"] == {"path": "main.py"}
     assert "arguments" not in calls[1]
@@ -47,7 +66,7 @@ def test_replay_executes_read_only_tool_without_mutating_live_state(e2e_componen
         fs.read_file,
     )
     store = TraceStore(tmp_path / "traces.jsonl")
-    store.turn_start("t2", "read main.py")
+    store.turn_start("t2", "read main.py", task_id="task-two")
     store.tool_call(
         "t2",
         step=1,
