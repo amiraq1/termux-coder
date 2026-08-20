@@ -248,3 +248,23 @@ def test_context_assembler_passes_current_task_to_compaction():
         message["role"] == "system" and "Task: inspect repository" in message["content"]
         for message in messages
     )
+
+
+def test_latest_user_remains_p0_after_tool_tail():
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "current request"},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "call-1"}]},
+        {"role": "tool", "content": "result", "tool_call_id": "call-1"},
+    ]
+
+    current_seq = len(messages) - 1
+    latest_user_seq = max(
+        index for index, message in enumerate(messages) if message["role"] == "user"
+    )
+    items = [
+        PriorityEngine.classify(message, index, current_seq, latest_user_seq)
+        for index, message in enumerate(messages)
+    ]
+
+    assert items[1].priority == 0

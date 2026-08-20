@@ -331,8 +331,12 @@ class Agent:
 
         def prepare_messages(messages: list[dict]) -> list[dict]:
             current_seq = len(messages) - 1
+            latest_user_seq = max(
+                (i for i, msg in enumerate(messages) if msg.get("role") == "user"),
+                default=None,
+            )
             items = [
-                PriorityEngine.classify(msg, i, current_seq)
+                PriorityEngine.classify(msg, i, current_seq, latest_user_seq)
                 for i, msg in enumerate(messages)
             ]
             return self.assembler.assemble(items, current_task=user_text)
@@ -431,8 +435,12 @@ class Agent:
             for round_idx in range(self.settings.max_tool_rounds):
                 # v0.6: تحويل self.messages إلى ContextItems
                 current_seq = len(self.messages) - 1
+                latest_user_seq = max(
+                    (i for i, msg in enumerate(self.messages) if msg.get("role") == "user"),
+                    default=None,
+                )
                 items = [
-                    PriorityEngine.classify(msg, i, current_seq)
+                    PriorityEngine.classify(msg, i, current_seq, latest_user_seq)
                     for i, msg in enumerate(self.messages)
                 ]
 

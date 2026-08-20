@@ -41,7 +41,12 @@ class PriorityEngine:
     """تحديد أولوية العناصر بناءً على السياق الحالي."""
 
     @staticmethod
-    def classify(message: dict, seq: int, current_seq: int) -> ContextItem:
+    def classify(
+        message: dict,
+        seq: int,
+        current_seq: int,
+        latest_user_seq: int | None = None,
+    ) -> ContextItem:
         """تصنيف رسالة إلى ContextItem بأولوية مناسبة."""
         role = message.get("role", "")
         content = message.get("content") or ""
@@ -61,7 +66,12 @@ class PriorityEngine:
         # P0: user request حالي (آخر user message)
         if role == "user":
             distance = current_seq - seq
-            if distance <= 1:
+            is_current_request = (
+                seq == latest_user_seq
+                if latest_user_seq is not None
+                else distance <= 1
+            )
+            if is_current_request:
                 return ContextItem(
                     content=content,
                     kind="user",
