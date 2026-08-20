@@ -3,53 +3,72 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from dataclasses import asdict, dataclass, field
-from typing import Any, Awaitable, Callable, Iterable, Literal
+from typing import Any, Awaitable, Callable, Iterable, Literal, List, Set, Optional
 
+from pydantic import BaseModel, Field
 
-TaskStatus = Literal["pending", "running", "done", "failed", "cancelled"]
-TodoStatus = Literal["pending", "running", "done", "failed"]
+TaskStatus = Literal["pending", "running", "completed", "failed", "timeout", "cancelled"]
+TodoStatus = Literal["pending", "running", "completed", "failed"]
 
 READ_ONLY_TOOLS = frozenset({"list_dir", "read_file", "search_text", "repo_map"})
 
-
-@dataclass(frozen=True)
-class ExplorationTaskSpec:
+class ExplorationTaskSpec(BaseModel):
     task_id: str
     title: str
     scope: str
 
+class ExplorationEvent(BaseModel):
+    kind: str
+    turn_id: str
+    task_id: str
+    timestamp: float = Field(default_factory=time.monotonic)
+    detail: Optional[str] = None
+    related_paths: List[str] = Field(default_factory=list)
 
-@dataclass
-class ExplorationTask:
+class ExplorationTask(BaseModel):
+    turn_id: str
     task_id: str
     title: str
     scope: str
     status: TaskStatus = "pending"
-    started_at: float | None = None
-    finished_at: float | None = None
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
     elapsed_ms: float = 0.0
     token_count: int = 0
-    events: deque[str] = field(default_factory=lambda: deque(maxlen=40))
-    error: str | None = None
+    events: List[str] = Field(default_factory=list)
+    related_paths: Set[str] = Field(default_factory=set)
+    error: Optional[str] = None
+
+    class Config:
+        arbitrary_types_allowed = True
 
     def start(self) -> None:
+        if self.status != "pending":
+            raise ValueError(f"Cannot start task from {self.status}")
         self.status = "running"
         self.started_at = time.monotonic()
         self.finished_at = None
         self.elapsed_ms = 0.0
         self.error = None
 
-    def record(self, line: str, *, tokens: int = 0) -> None:
+    def record(self, line: str, *, tokens: int = 0, paths: Iterable[str] = ()) -> None:
         self.events.append(str(line))
+        # Keep only the last 40 events to prevent bloat if needed, but Pydantic list doesn't have maxlen
+        if len(self.events) > 40:
+            self.events = self.events[-40:]
         self.token_count += max(0, int(tokens))
+        for p in paths:
+            self.related_paths.add(p)
         self.refresh_elapsed()
 
-    def finish(self, status: TaskStatus = "done", error: str | None = None) -> None:
-        if status not in {"done", "failed", "cancelled"}:
+    def finish(self, status: TaskStatus = "completed", error: Optional[str] = None) -> None:
+        if status not in {"completed", "failed", "timeout", "cancelled"}:
             raise ValueError(f"invalid terminal task status: {status}")
+        if self.status in {"failed", "timeout", "cancelled"} and status == "completed":
+            raise ValueError(f"Cannot transition from {self.status} to completed")
         self.refresh_elapsed()
-        self.finished_at = time.monotonic()
+        if not self.finished_at:
+            self.finished_at = time.monotonic()
         self.refresh_elapsed()
         self.status = status
         self.error = error
@@ -61,13 +80,10 @@ class ExplorationTask:
 
     def snapshot(self) -> dict[str, Any]:
         self.refresh_elapsed()
-        data = asdict(self)
-        data["events"] = list(self.events)
-        return data
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class TodoItem:
+class TodoItem(BaseModel):
     todo_id: str
     title: str
     status: TodoStatus = "pending"
@@ -106,6 +122,7 @@ class ExplorationManager:
 
     def __init__(
         self,
+        turn_id: str,
         *,
         max_tasks: int = 6,
         max_events_per_task: int = 40,
@@ -115,6 +132,7 @@ class ExplorationManager:
             raise ValueError("max_tasks must be positive")
         if max_events_per_task < 1:
             raise ValueError("max_events_per_task must be positive")
+        self.turn_id = turn_id
         self.max_tasks = max_tasks
         self.max_events_per_task = max_events_per_task
         self.on_update = on_update
@@ -130,14 +148,14 @@ class ExplorationManager:
             raise ValueError("exploration task ids must be unique")
         self.tasks = {
             spec.task_id: ExplorationTask(
+                turn_id=self.turn_id,
                 task_id=spec.task_id,
                 title=spec.title,
                 scope=spec.scope,
-                events=deque(maxlen=self.max_events_per_task),
             )
             for spec in specs
         }
-        self.todos = [TodoItem(spec.task_id, spec.title) for spec in specs]
+        self.todos = [TodoItem(todo_id=spec.task_id, title=spec.title) for spec in specs]
         return list(self.tasks.values())
 
     def set_todo_status(self, todo_id: str, status: TodoStatus) -> None:
@@ -163,7 +181,7 @@ class ExplorationManager:
     async def _notify_todos(self) -> None:
         await self._notify(
             "exploration_todos",
-            items=[asdict(item) for item in self.todos],
+            items=[item.model_dump(mode="json") for item in self.todos],
         )
 
     async def start_task(self, task_id: str) -> ExplorationTask:
@@ -181,17 +199,19 @@ class ExplorationManager:
         detail: str = "",
         *,
         tokens: int = 0,
+        paths: Iterable[str] = (),
     ) -> None:
         if tool not in READ_ONLY_TOOLS:
             raise PermissionError(f"exploration is read-only; tool denied: {tool}")
         task = self.task(task_id)
-        task.record(f"{tool.upper()} {detail}".strip(), tokens=tokens)
+        task.record(f"{tool.upper()} {detail}".strip(), tokens=tokens, paths=paths)
         await self._notify(
             "exploration_tool_result",
             task_id=task_id,
             tool=tool,
             detail=detail,
             tokens=max(0, int(tokens)),
+            paths=list(paths),
             task=task.snapshot(),
         )
 
@@ -199,12 +219,12 @@ class ExplorationManager:
         self,
         task_id: str,
         *,
-        status: TaskStatus = "done",
+        status: TaskStatus = "completed",
         error: str | None = None,
     ) -> None:
         task = self.task(task_id)
         task.finish(status, error)
-        self.set_todo_status(task_id, "done" if status == "done" else "failed")
+        self.set_todo_status(task_id, "completed" if status == "completed" else "failed")
         await self._notify_todos()
         await self._notify("exploration_task_end", task=task.snapshot())
 
@@ -238,9 +258,13 @@ class ExplorationManager:
                 except asyncio.CancelledError:
                     await self.finish_task(task.task_id, status="cancelled")
                     raise
+                except TimeoutError:
+                    await self.finish_task(task.task_id, status="timeout", error="timeout after execution limit")
+                    # don't re-raise timeout for exploration task, just mark failed
+                    return None
                 except Exception as exc:
                     await self.finish_task(task.task_id, status="failed", error=str(exc))
-                    raise
+                    return None # Don't raise, just fail task
                 await self.finish_task(task.task_id)
                 return result
 
@@ -249,16 +273,16 @@ class ExplorationManager:
     def snapshot(self) -> dict[str, Any]:
         return {
             "tasks": [task.snapshot() for task in self.tasks.values()],
-            "todos": [asdict(item) for item in self.todos],
+            "todos": [item.model_dump(mode="json") for item in self.todos],
             "cancelled": self._cancelled,
         }
-
 
 __all__ = [
     "ExplorationEventStream",
     "ExplorationManager",
     "ExplorationTask",
     "ExplorationTaskSpec",
+    "ExplorationEvent",
     "READ_ONLY_TOOLS",
     "TodoItem",
 ]

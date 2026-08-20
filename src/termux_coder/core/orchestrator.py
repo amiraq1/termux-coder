@@ -225,6 +225,7 @@ class AgentOrchestrator:
         verification_runner: VerificationRunner | None = None,
         trace_store: TraceStore | None = None,
         impact_analyzer: ImpactAnalyzer | None = None,
+        dissection_mode: bool = False,
     ):
         self.provider       = provider
         self.registry       = registry
@@ -243,6 +244,7 @@ class AgentOrchestrator:
         self._impact_analyzer = impact_analyzer
         self._trace_step = 0
         self._trace_steps: dict[str, int] = {}
+        self.dissection_mode = dissection_mode
 
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
@@ -344,6 +346,18 @@ class AgentOrchestrator:
         تقييم استدعاء أداة ضد السياسة.
         الصلاحية تأتي من TOOL_PERMISSIONS، لا من النموذج.
         """
+        if getattr(self, "dissection_mode", False):
+            perm = self.policy_engine.tool_permission(call.name)
+            # block any write/execute permissions, which includes apply_patch, git, shell
+            if perm is None or perm.value in {"write", "execute"}:
+                return EvaluatedToolCall(
+                    call=call,
+                    decision=DecisionKind.DENY,
+                    deny_reason=f"dissection_mode: '{call.name}' requires mutation permission which is denied",
+                    preview_error=None,
+                    preview=None,
+                )
+
         decision_raw = self.policy_engine.evaluate_tool(call.name, call.arguments)
 
         if not decision_raw.allowed:
