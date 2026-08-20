@@ -205,12 +205,27 @@ class Agent:
         self.state.research_intent = None
         self.state.research_packet = None
 
+    async def _emit_repo_map_event(
+        self, kind: str, *, ui_kind: str | None = None, **payload
+    ) -> None:
+        """Record repo-map lifecycle events and forward them to the UI."""
+        fields: dict[str, object] = {}
+        bundle = self._active_bundle
+        if bundle is not None:
+            fields["turn_id"] = bundle.turn_id
+            fields["task_id"] = bundle.task_id
+            related_paths = sorted({str(path) for path in bundle.related_paths})
+            if related_paths:
+                fields["related_paths"] = related_paths
+        self.audit.log(kind, **fields, **payload)
+        await self.ui.on_event(ui_kind or kind, **payload)
+
     async def _render_repo_map_with_timeout(self) -> str | None:
         """Render repo_map without allowing a blocking scan to freeze the TUI."""
         task = self._repo_map_task
         if task is not None:
             if not task.done():
-                await self.ui.on_event(
+                await self._emit_repo_map_event(
                     "repo_map_timeout",
                     timeout_s=float(getattr(self.settings, "repo_map_timeout_s", 8.0)),
                     reason="previous repo_map scan is still running",
@@ -223,6 +238,7 @@ class Agent:
             self._repo_map_task = None
 
         timeout_s = min(max(float(getattr(self.settings, "repo_map_timeout_s", 8.0)), 0.01), 30.0)
+        await self._emit_repo_map_event("repo_map_start", timeout_s=timeout_s)
         task = asyncio.create_task(asyncio.to_thread(self.repomap.render_budget))
         self._repo_map_task = task
         try:
@@ -230,7 +246,7 @@ class Agent:
             self._repo_map_task = None
             return result
         except asyncio.TimeoutError:
-            await self.ui.on_event(
+            await self._emit_repo_map_event(
                 "repo_map_timeout",
                 timeout_s=timeout_s,
                 reason="repository scan exceeded its time budget",
@@ -238,7 +254,7 @@ class Agent:
             return None
         except (OSError, ValueError, RuntimeError) as exc:
             self._repo_map_task = None
-            await self.ui.on_event(
+            await self._emit_repo_map_event(
                 "repo_map_failed",
                 error=type(exc).__name__,
             )
@@ -332,7 +348,11 @@ class Agent:
             map_text = await self._render_repo_map_with_timeout()
             if map_text is not None:
                 if self.repomap.changed or not self._map_sent:
-                    await self.ui.on_event("map_ready", **self.repomap.last_stats)
+                    await self._emit_repo_map_event(
+                        "repo_map_ready",
+                        ui_kind="map_ready",
+                        **self.repomap.last_stats,
+                    )
                     self._map_sent = True
                 self._refresh_map_message(map_text)
 
@@ -488,7 +508,11 @@ class Agent:
             map_text = await self._render_repo_map_with_timeout()
             if map_text is not None:
                 if self.repomap.changed or not self._map_sent:
-                    await self.ui.on_event("map_ready", **self.repomap.last_stats)
+                    await self._emit_repo_map_event(
+                        "repo_map_ready",
+                        ui_kind="map_ready",
+                        **self.repomap.last_stats,
+                    )
                     self._map_sent = True
                 self._refresh_map_message(map_text)
 

@@ -103,7 +103,7 @@ class TraceStore:
             trace_id,
             "turn_start",
             user=self._summary(user_text),
-            model=model or "",
+            model=model or "unknown",
             **self._bundle_fields(task_id, related_paths),
         )
 

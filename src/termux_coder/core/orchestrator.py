@@ -270,7 +270,14 @@ class AgentOrchestrator:
     def state(self) -> TurnState:
         return self._state
 
-    def _transition(self, new_state: TurnState) -> None:
+    def _transition(
+        self,
+        new_state: TurnState,
+        *,
+        reason: str = "unspecified",
+        round_idx: int | None = None,
+        retry: bool = False,
+    ) -> None:
         allowed = _ALLOWED_TRANSITIONS.get(self._state, set())
         if new_state not in allowed:
             raise StateTransitionError(
@@ -284,6 +291,9 @@ class AgentOrchestrator:
             turn_id=self._turn_id,
             from_state=old.value,
             to_state=new_state.value,
+            reason=reason,
+            round=round_idx,
+            retry=retry,
         )
 
     def _record_call_paths(self, call: ToolCall) -> None:
@@ -1075,7 +1085,7 @@ class AgentOrchestrator:
         on_token = on_token or _noop_token
 
         self.audit.log("turn_start", turn_id=self._turn_id, task_id=self._task_id)
-        self._transition(TurnState.PLANNING)
+        self._transition(TurnState.PLANNING, reason="turn_start")
         await self._on_event(
             "turn_start",
             turn_id=self._turn_id,
@@ -1089,9 +1099,15 @@ class AgentOrchestrator:
         )
         self._edit_requested = ModelRouter.looks_like_edit(user_text)
         if self._trace_store is not None:
+            model_name = (
+                getattr(self.provider, "current_model", None)
+                or getattr(self.provider, "model", None)
+                or "unknown"
+            )
             self._trace_store.turn_start(
                 self._turn_id,
                 user_text,
+                model=model_name,
                 task_id=self._task_id,
                 related_paths=sorted(self._related_paths),
             )
@@ -1160,7 +1176,11 @@ class AgentOrchestrator:
                     )
 
                 # ── استدعاء المزود ────────────────────────────
-                self._transition(TurnState.PLANNING)
+                self._transition(
+                    TurnState.PLANNING,
+                    reason="round_start",
+                    round_idx=round_idx,
+                )
                 await self._on_event("round_start", round=round_idx)
 
                 schemas = [] if text_only_retry_used else self.registry.schemas()
