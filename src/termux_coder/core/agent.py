@@ -11,6 +11,7 @@ from ..context import (
     ContextItem,
     PriorityEngine,
     TokenEstimator,
+    TurnBundle,
 )
 from ..providers.router import FAST_EXCLUDE
 from .recovery import recover_tool_calls, sanitize_tool_calls
@@ -184,6 +185,7 @@ class Agent:
         )
         self.orchestrator: AgentOrchestrator | None = None
         self.last_turn_result = None
+        self._active_bundle: TurnBundle | None = None
 
     def _sanitize_assistant_tool_calls(self, assistant: dict) -> list[dict] | None:
         raw_calls = assistant.get("tool_calls")
@@ -315,7 +317,12 @@ class Agent:
         ):
             await self._run_read_only_exploration()
 
-        user_message = {"role": "user", "content": user_text}
+        self._active_bundle = TurnBundle.create(user_text, self.session_id)
+        user_message = {
+            "role": "user",
+            "content": user_text,
+            **self._active_bundle.metadata(),
+        }
         self.messages.append(user_message)
         self._persist(user_message)
         if self.store and self._seq == 1:
@@ -339,7 +346,11 @@ class Agent:
                 PriorityEngine.classify(msg, i, current_seq, latest_user_seq)
                 for i, msg in enumerate(messages)
             ]
-            return self.assembler.assemble(items, current_task=user_text)
+            return self.assembler.assemble(
+                items,
+                current_task=user_text,
+                active_task_id=self._active_bundle.task_id if self._active_bundle else None,
+            )
 
         provider = RouterProviderAdapter(self.router, self.ui, user_text)
         provider.begin_turn()
@@ -379,6 +390,7 @@ class Agent:
         finally:
             self.exploration_manager.cancel()
             self._clear_turn_research_context()
+            self._active_bundle = None
             # Always release the TUI busy state, including failure and cancellation.
             await self.ui.on_event("turn_end")
 
@@ -388,6 +400,14 @@ class Agent:
             await self.lsp.shutdown()
         if self.store:
             self.store.close()
+
+    def _attach_active_bundle(self, message: dict) -> dict:
+        if not self._active_bundle or message.get("role") not in {"user", "assistant", "tool"}:
+            return message
+        enriched = dict(message)
+        for key, value in self._active_bundle.metadata().items():
+            enriched.setdefault(key, value)
+        return enriched
 
     def _persist(self, message: dict) -> None:
         if not self.store or not self.session_id:
@@ -415,7 +435,12 @@ class Agent:
         intent_run = self.router.looks_like_run(user_text)
         escalated = False
 
-        user_message = {"role": "user", "content": user_text}
+        self._active_bundle = TurnBundle.create(user_text, self.session_id)
+        user_message = {
+            "role": "user",
+            "content": user_text,
+            **self._active_bundle.metadata(),
+        }
         self.messages.append(user_message)
         self._persist(user_message)
         if self.store and self._seq == 1:
@@ -445,7 +470,11 @@ class Agent:
                 ]
 
                 # v0.6: تجميع السياق المضغوط
-                assembled = self.assembler.assemble(items, current_task=user_text)
+                assembled = self.assembler.assemble(
+                    items,
+                    current_task=user_text,
+                    active_task_id=self._active_bundle.task_id if self._active_bundle else None,
+                )
                 stats = self.assembler.stats(items)
 
                 # v0.6: إرسال stats للواجهة
@@ -515,6 +544,7 @@ class Agent:
                             tool_calls = recovered
                             await self.ui.on_event("tool_recovered", count=len(recovered))
 
+                assistant = self._attach_active_bundle(assistant)
                 self.messages.append(assistant)
                 self._persist(assistant)
 
@@ -558,7 +588,12 @@ class Agent:
                                     result = f"tool error: {exc}"
 
                     await self.ui.on_event("tool_result", name=name, text=result)
-                    tool_msg = {"role": "tool", "tool_call_id": call["id"], "content": result}
+                    tool_msg = {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": result,
+                        **(self._active_bundle.metadata() if self._active_bundle else {}),
+                    }
                     self.messages.append(tool_msg)
                     self._persist(tool_msg)
 
@@ -566,4 +601,5 @@ class Agent:
         finally:
             if self.store and self.session_id:
                 self.store.save_state(self.session_id, self.state)
+            self._active_bundle = None
             await self.ui.on_event("turn_end")

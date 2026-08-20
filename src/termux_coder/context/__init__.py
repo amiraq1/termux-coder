@@ -4,6 +4,7 @@ from .compactor import CompactionStrategy
 from .estimator import TokenEstimator
 from .priority import ContextItem, PriorityEngine
 from .repomap import RepoMap
+from .turn_bundle import TurnBundle, bundle_metadata
 
 __all__ = [
     "TokenEstimator",
@@ -13,4 +14,6 @@ __all__ = [
     "BudgetManager",
     "ContextAssembler",
     "RepoMap",
+    "TurnBundle",
+    "bundle_metadata",
 ]

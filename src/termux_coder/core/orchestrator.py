@@ -245,6 +245,7 @@ class AgentOrchestrator:
 
         self._state: TurnState = TurnState.IDLE
         self._turn_id: str | None = None
+        self._task_id: str | None = None
         self._history: list[dict] = []
         self._pending_approvals: dict[str, EvaluatedToolCall] = {}
         self._cancel_event = asyncio.Event()
@@ -284,7 +285,13 @@ class AgentOrchestrator:
         )
 
     def _append_message(self, messages: list[dict], message: dict) -> None:
-        """Append a message and persist it unless it is explicitly ephemeral."""
+        """Append a bundle-tagged message and persist it unless ephemeral."""
+        if message.get("role") in {"assistant", "tool"}:
+            message = dict(message)
+            if self._turn_id:
+                message.setdefault("turn_id", self._turn_id)
+            if self._task_id:
+                message.setdefault("task_id", self._task_id)
         messages.append(message)
         if self._message_sink is not None and not message.get("_ephemeral", False):
             self._message_sink(message)
@@ -1009,7 +1016,12 @@ class AgentOrchestrator:
                 error=f"orchestrator not idle (current={self._state.value})",
             )
 
-        self._turn_id = uuid.uuid4().hex[:12]
+        user_message = next(
+            (message for message in reversed(messages) if message.get("role") == "user"),
+            {},
+        )
+        self._turn_id = user_message.get("turn_id") or uuid.uuid4().hex[:12]
+        self._task_id = user_message.get("task_id") or f"task-{self._turn_id}"
         self._trace_step = 0
         self._trace_steps.clear()
         self._cancel_event.clear()
@@ -1023,9 +1035,13 @@ class AgentOrchestrator:
         deadline = time.monotonic() + self.max_duration_s
         on_token = on_token or _noop_token
 
-        self.audit.log("turn_start", turn_id=self._turn_id)
+        self.audit.log("turn_start", turn_id=self._turn_id, task_id=self._task_id)
         self._transition(TurnState.PLANNING)
-        await self._on_event("turn_start", turn_id=self._turn_id)
+        await self._on_event(
+            "turn_start",
+            turn_id=self._turn_id,
+            task_id=self._task_id,
+        )
 
         user_text = next(
             (str(message.get("content", "")) for message in reversed(messages)

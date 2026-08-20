@@ -26,7 +26,12 @@ class BudgetManager:
     def input_budget(self) -> int:
         return self.max_tokens - self.output_reserve
 
-    def fit(self, items: list[ContextItem], current_task: str = "") -> list[ContextItem]:
+    def fit(
+        self,
+        items: list[ContextItem],
+        current_task: str = "",
+        active_task_id: str | None = None,
+    ) -> list[ContextItem]:
         """
         ضبط العناصر لتناسب الميزانية.
         
@@ -44,11 +49,17 @@ class BudgetManager:
         # فرز حسب الأولوية (عكسي: P5 أولًا للضغط)
         sorted_items = sorted(items, key=lambda x: -x.priority)
 
-        # المرحلة A: تلخيص P5 (المحادثة القديمة) بدل حذفها بلا أثر.
+        def is_active(item: ContextItem) -> bool:
+            return bool(
+                active_task_id
+                and item.metadata.get("task_id") == active_task_id
+            )
+
+        # المرحلة A: تلخيص P5 القديم، لكن لا نلمس عناصر Turn Bundle النشط.
         kept = []
         old_conversation = []
         for item in sorted_items:
-            if item.priority == 5 and item.compressible:
+            if item.priority == 5 and item.compressible and not is_active(item):
                 old_conversation.append(item)
                 continue
             kept.append(item)
@@ -71,7 +82,12 @@ class BudgetManager:
         # المرحلة B: ضغط P4 (tool results قديمة)
         compacted = []
         for item in kept:
-            if item.priority == 4 and item.compressible and item.kind == "tool":
+            if (
+                item.priority == 4
+                and item.compressible
+                and item.kind == "tool"
+                and not is_active(item)
+            ):
                 from .compactor import CompactionStrategy
                 strategy = CompactionStrategy(self.estimator)
                 compacted.append(strategy.compact_tool_output(item))
@@ -85,7 +101,7 @@ class BudgetManager:
         # المرحلة C: ضغط P3 (repo map)
         further_compacted = []
         for item in compacted:
-            if item.priority == 3 and item.kind == "map":
+            if item.priority == 3 and item.kind == "map" and not is_active(item):
                 from .compactor import CompactionStrategy
                 strategy = CompactionStrategy(self.estimator)
                 new_content = strategy.compact_repo_map(item.content)
@@ -109,7 +125,7 @@ class BudgetManager:
         # fallback: حذف P2 compressible
         final = []
         for item in further_compacted:
-            if item.priority == 2 and item.compressible:
+            if item.priority == 2 and item.compressible and not is_active(item):
                 continue
             final.append(item)
 

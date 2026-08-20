@@ -52,6 +52,11 @@ class PriorityEngine:
         content = message.get("content") or ""
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
+        bundle = {
+            key: message[key]
+            for key in ("turn_id", "task_id")
+            if isinstance(message.get(key), str) and message[key]
+        }
 
         # P0: system prompt
         if role == "system":
@@ -77,6 +82,7 @@ class PriorityEngine:
                     kind="user",
                     priority=0,
                     compressible=False,
+                    metadata=bundle,
                 )
             else:
                 # محادثة قديمة
@@ -85,6 +91,7 @@ class PriorityEngine:
                     kind="user",
                     priority=5,
                     compressible=True,
+                    metadata=bundle,
                 )
 
         # P1: tool call حالي
@@ -94,7 +101,7 @@ class PriorityEngine:
                 kind="assistant",
                 priority=1,
                 compressible=False,
-                metadata={"tool_calls": tool_calls},
+                metadata={"tool_calls": tool_calls, **bundle},
             )
 
         # P2: tool result حديث
@@ -106,7 +113,7 @@ class PriorityEngine:
                     kind="tool",
                     priority=2,
                     compressible=True,
-                    metadata={"tool_call_id": tool_call_id},
+                    metadata={"tool_call_id": tool_call_id, **bundle},
                 )
             else:
                 # tool result قديم
@@ -115,7 +122,7 @@ class PriorityEngine:
                     kind="tool",
                     priority=4,
                     compressible=True,
-                    metadata={"tool_call_id": tool_call_id},
+                    metadata={"tool_call_id": tool_call_id, **bundle},
                 )
 
         # P2: assistant reply حديث
@@ -127,6 +134,7 @@ class PriorityEngine:
                     kind="assistant",
                     priority=2,
                     compressible=True,
+                    metadata=bundle,
                 )
             else:
                 return ContextItem(
@@ -134,12 +142,15 @@ class PriorityEngine:
                     kind="assistant",
                     priority=5,
                     compressible=True,
+                    metadata=bundle,
                 )
 
         # fallback
+
         return ContextItem(
             content=content,
             kind=role,
             priority=3,
             compressible=True,
+            metadata=bundle,
         )

@@ -105,6 +105,9 @@ class SessionStore:
             extra["tool_calls"] = message["tool_calls"]
         if message.get("tool_call_id"):
             extra["tool_call_id"] = message["tool_call_id"]
+        for key in ("turn_id", "task_id"):
+            if isinstance(message.get(key), str) and message[key]:
+                extra[key] = message[key]
         self.conn.execute(
             "INSERT OR REPLACE INTO messages (session_id, seq, role, content, extra) "
             "VALUES (?,?,?,?,?)",

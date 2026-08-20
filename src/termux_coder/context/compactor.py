@@ -102,8 +102,14 @@ class CompactionStrategy:
         summary = f"Task: {current_task}\n\nProgress:\n" + "\n".join(progress)
 
         source_seqs = []
+        task_ids = set()
+        turn_ids = set()
         for item in items:
             source_seqs.extend(item.source_messages)
+            if item.metadata.get("task_id"):
+                task_ids.add(item.metadata["task_id"])
+            if item.metadata.get("turn_id"):
+                turn_ids.add(item.metadata["turn_id"])
 
         return ContextItem(
             content=summary,
@@ -111,7 +117,11 @@ class CompactionStrategy:
             priority=2,  # الملخص نفسه P2
             compressible=False,
             source_messages=source_seqs,
-            metadata={"original_items": len(items)},
+            metadata={
+                "original_items": len(items),
+                "task_ids": sorted(task_ids),
+                "turn_ids": sorted(turn_ids),
+            },
         )
 
     def compact_repo_map(self, map_text: str, focus: str = "") -> str:
