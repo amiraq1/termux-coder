@@ -258,12 +258,26 @@ def test_multi_file_plan_rolls_back_when_verification_fails(e2e_components):
                 )
             ],
         )
-        result = await orch.run_turn([{"role": "user", "content": "apply and verify"}])
+        messages = [{
+            "role": "user",
+            "content": "Apply and verify the change in main.py",
+            "turn_id": "turn-rollback",
+            "task_id": "task-restore",
+        }]
+        result = await orch.run_turn(messages)
 
         assert result.state.value == "failed"
         assert (workspace / "main.py").read_text() == original
         assert any(kind == "patch_plan_rollback" for kind, _ in components["ui"].events)
         assert components["state"].applied_patches == []
+
+        bundle_messages = [
+            message for message in messages if message.get("role") in {"assistant", "tool"}
+        ]
+        assert bundle_messages
+        assert all(message.get("task_id") == "task-restore" for message in bundle_messages)
+        assert any("main.py" in message.get("related_paths", []) for message in bundle_messages)
+        assert not any("changed_paths" in message for message in bundle_messages)
 
     run(scenario())
 

@@ -1,6 +1,6 @@
 # Threat Audit — termux-coder
 
-**Generated:** 2026-08-20T09:04:28.511525+00:00
+**Generated:** 2026-08-20T09:11:22.228070+00:00
 **Collected tests:** `460`
 
 > Status is evidence-based and repository-specific. It is not a security certification.
@@ -16,7 +16,7 @@
 | T9 | YOLO or global auto-approval bypass | **IMPLEMENTED** | `src/termux_coder/security/policy.py` | `tests/test_policy.py` | `PASS` | `09c4bbc 2026-08-19` | Negative assurance also needs a static scan for bypass flags and aliases. |
 | T10 | Orphaned or unreachable security code | **PLANNED** | — | — | `NOT_APPLICABLE` | `—` | Requires a dedicated dead-code and reachability audit. |
 | T11 | Recursive sub-agent privilege inheritance | **PLANNED** | — | — | `NOT_APPLICABLE` | `—` | Sub-agent execution is not implemented in the current repository. |
-| T14 | Approval replay or argument tampering | **IMPLEMENTED** | `src/termux_coder/models/contracts.py`, `src/termux_coder/core/orchestrator.py` | `tests/test_orchestrator.py`, `tests/test_orchestrator_integration.py` | `PASS` | `9cb4d1c 2026-08-20` | The implementation uses call fingerprints; there is no separate ApprovalToken type. |
+| T14 | Approval replay or argument tampering | **IMPLEMENTED** | `src/termux_coder/models/contracts.py`, `src/termux_coder/core/orchestrator.py` | `tests/test_orchestrator.py`, `tests/test_orchestrator_integration.py` | `PASS` | `b878043 2026-08-20` | The implementation uses call fingerprints; there is no separate ApprovalToken type. |
 | T15 | Network stream interception | **PARTIAL** | `src/termux_coder/tools/fetch_page.py` | — | `NOT_APPLICABLE` | `50640f8 2026-08-18` | HTTPS verification is used, but certificate pinning is not implemented. |
 
 ## Summary
