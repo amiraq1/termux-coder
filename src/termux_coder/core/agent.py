@@ -26,6 +26,8 @@ from .orchestrator_adapter import RouterProviderAdapter
 from .verification import VerificationRunner
 from .trace import TraceStore
 from .research import ResearchCoordinator
+from .detail import wants_detailed_report
+from .exploration import ExplorationEventStream, ExplorationManager, ExplorationTaskSpec
 from ..tools.preview import PatchPreviewService
 from ..tools.duckduckgo import DuckDuckGoProvider
 from ..tools.fetch_page import FetchPageService
@@ -165,6 +167,16 @@ class Agent:
             self.capability_registry,
         )
         self._repo_map_task: asyncio.Task | None = None
+        self.exploration_stream = ExplorationEventStream()
+        self.exploration_manager = ExplorationManager(
+            max_tasks=int(getattr(settings, "exploration_max_tasks", 6)),
+            on_update=self.exploration_stream,
+        )
+
+        async def forward_exploration_event(kind: str, payload: dict) -> None:
+            await self.ui.on_event(kind, **payload)
+
+        self.exploration_stream.subscribe(forward_exploration_event)
         self.trace_store = (
             TraceStore(settings.state_dir / "traces.jsonl")
             if getattr(settings, "execution_trace_enabled", True)
@@ -230,9 +242,79 @@ class Agent:
             )
             return None
 
+    async def _run_read_only_exploration(self) -> None:
+        specs = [
+            ExplorationTaskSpec("core", "core subsystem", "src/termux_coder/core"),
+            ExplorationTaskSpec("tools", "tools subsystem", "src/termux_coder/tools"),
+            ExplorationTaskSpec("providers", "providers subsystem", "src/termux_coder/providers"),
+            ExplorationTaskSpec("security", "security and models", "src/termux_coder/security,src/termux_coder/models"),
+            ExplorationTaskSpec("ui", "UI subsystem", "src/termux_coder/ui"),
+            ExplorationTaskSpec("tests", "tests and docs", "tests,README.md"),
+        ]
+        tasks = [
+            {
+                "task_id": spec.task_id,
+                "title": spec.title,
+                "scope": spec.scope,
+                "status": "pending",
+                "elapsed_ms": 0.0,
+                "token_count": 0,
+                "events": [],
+            }
+            for spec in specs
+        ]
+        todos = [
+            {"todo_id": spec.task_id, "title": spec.title, "status": "pending"}
+            for spec in specs
+        ]
+        await self.ui.on_event("exploration_start", tasks=tasks, todos=todos)
+
+        async def worker(task):
+            root = self.jail.root
+            paths: list = []
+            for scope in task.scope.split(","):
+                base = root / scope
+                if base.is_file():
+                    paths.append(base)
+                elif base.is_dir():
+                    paths.extend(
+                        path
+                        for path in base.rglob("*.py")
+                        if not any(part in {".git", ".venv", "__pycache__"} for part in path.parts)
+                    )
+            paths = sorted(paths)[:12]
+            for path in paths:
+                if self.exploration_manager._cancelled:
+                    break
+                try:
+                    content = await asyncio.to_thread(
+                        path.read_text, encoding="utf-8", errors="replace"
+                    )
+                    rel = str(path.relative_to(root))
+                    await self.exploration_manager.record_tool(
+                        task.task_id,
+                        "read_file",
+                        rel,
+                        tokens=max(1, len(content) // 4),
+                    )
+                except (OSError, UnicodeError):
+                    continue
+            return task.task_id
+
+        try:
+            await self.exploration_manager.run(specs, worker)
+        finally:
+            await self.ui.on_event("exploration_end")
+
     async def _run_turn_orchestrated(self, user_text: str) -> None:
         """مسار P2 التجريبي؛ يحافظ على عقد الجلسة ويستخدم المسار القديم كخطة تراجع."""
         self._clear_turn_research_context()
+        if (
+            getattr(self.settings, "exploration_enabled", True)
+            and wants_detailed_report(user_text)
+        ):
+            await self._run_read_only_exploration()
+
         user_message = {"role": "user", "content": user_text}
         self.messages.append(user_message)
         self._persist(user_message)

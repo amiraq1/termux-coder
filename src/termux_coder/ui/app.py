@@ -186,6 +186,55 @@ class WelcomeCard(Static):
     """Compact start card for small terminal screens."""
 
 
+def _compact_activity(value: object, limit: int = 76) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)] + current_glyphs().ellipsis
+
+
+class TaskActivityWidget(Static):
+    """A bounded, phone-friendly row for one read-only exploration task."""
+
+    def __init__(self, task: dict | None = None, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.task = task or {}
+
+    def update_task(self, task: dict) -> None:
+        self.task = task
+        status = str(task.get("status", "pending")).upper()
+        title = _compact_activity(task.get("title", task.get("task_id", "task")), 30)
+        elapsed = float(task.get("elapsed_ms", 0.0)) / 1000
+        tokens = int(task.get("token_count", 0))
+        glyphs = current_glyphs()
+        marker = {
+            "PENDING": glyphs.bullet,
+            "RUNNING": glyphs.tree,
+            "DONE": glyphs.check,
+            "FAILED": glyphs.cross,
+            "CANCELLED": glyphs.cross,
+        }.get(status, glyphs.bullet)
+        style = {
+            "RUNNING": theme.WHITE,
+            "DONE": theme.GREEN,
+            "FAILED": theme.RED,
+            "CANCELLED": theme.ORANGE,
+        }.get(status, theme.DIM)
+        lines = [
+            Text.assemble(
+                (marker, style),
+                (f" {title}", theme.WHITE),
+                (f"  {status.lower()} ({elapsed:.0f}s | {tokens / 1000:.1f}k)", theme.DIM),
+            )
+        ]
+        for event in list(task.get("events", []))[-3:]:
+            lines.append(Text(f"  {glyphs.tree} {_compact_activity(event, 92)}", style=theme.DIM))
+        if task.get("error"):
+            lines.append(Text(f"  {glyphs.cross} {_compact_activity(task['error'], 92)}", style=theme.RED))
+        self.update("\n".join(line.plain for line in lines))
+        self.styles.color = style
+
+
 class PromptInput(Input):
     """Prompt input that preserves the global provider-picker shortcut."""
 
@@ -215,6 +264,9 @@ class PromptInput(Input):
         elif event.key == "ctrl+shift+c":
             event.stop()
             self.termux_app.action_copy_last_answer()
+        elif event.key == "ctrl+x":
+            event.stop()
+            self.termux_app.action_toggle_exploration()
 
 
 class TextualUI(AgentUI):
@@ -354,6 +406,17 @@ class TextualUI(AgentUI):
                     tool_line("ROUTE", tier, f"{payload.get('model')} · {suffix}", badge_color=color)
                 )
             )
+
+        elif kind == "exploration_start":
+            self.app.begin_exploration(payload.get("tasks", []), payload.get("todos", []))
+        elif kind in {"exploration_task_start", "exploration_task_end", "exploration_tool_result"}:
+            task = payload.get("task")
+            if task:
+                self.app.update_exploration_task(task)
+        elif kind == "exploration_todos":
+            self.app.update_exploration_todos(payload.get("items", []))
+        elif kind == "exploration_end":
+            self.app.finish_exploration()
 
         elif kind == "map_ready":
             # Repository mapping remains internal; keep it out of the activity feed.
@@ -572,6 +635,7 @@ class TermuxCoderApp(App):
         Binding("ctrl+m", "toggle_context_actions", "actions", show=False),
         Binding("alt+a", "toggle_context_actions", "actions", show=False),
         Binding("ctrl+shift+c", "copy_last_answer", "copy answer", show=False),
+        Binding("ctrl+x", "toggle_exploration", "exploration", show=False),
     ]
     CSS = """
     Screen { background: #000000; color: #e6e6f0; }
@@ -581,6 +645,12 @@ class TermuxCoderApp(App):
     #maincol { width: 1fr; min-width: 0; }
     #header { height: 11; min-height: 11; margin: 0 1; padding: 0 1; background: #000000; color: #e6e6f0; content-align: center middle; }
     #activity { height: 2; margin: 1 1 0 1; padding: 0 0; background: #000000; color: #e6e6f0; }
+    #exploration-panel { height: 11; min-height: 4; margin: 0 1; padding: 0 0; display: none; background: #000000; color: #e6e6f0; }
+    #exploration-panel.-visible { display: block; }
+    #exploration-header { height: 1; color: #ffffff; }
+    #exploration-tasks { height: 8; min-height: 2; padding: 0; scrollbar-size: 1 1; background: #000000; }
+    #exploration-todos { height: 2; min-height: 1; color: #aeb8c7; }
+    TaskActivityWidget { min-height: 2; padding: 0 1; background: #000000; }
     ChatFeed { height: 1fr; padding: 0 1; scrollbar-size: 1 1; background: #000000; }
     #welcome { margin: 1 0; padding: 1 2; background: #121a27; border: round #3b4f72; color: #cbd5e1; }
     #status { height: 2; margin: 0 1; padding: 0 0; background: #000000; color: #9ce3cb; }
@@ -615,6 +685,10 @@ class TermuxCoderApp(App):
         self._last_prompt = ""
         self._last_answer_text = ""
         self._last_answer_widget = None
+        self._exploration_widgets: dict[str, TaskActivityWidget] = {}
+        self._exploration_todos: list[dict] = []
+        self._exploration_visible = False
+        self._exploration_last_render = 0.0
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -622,6 +696,10 @@ class TermuxCoderApp(App):
             with Vertical(id="maincol"):
                 yield Static(id="header")
                 yield Static(id="activity")
+                with Vertical(id="exploration-panel"):
+                    yield Static(id="exploration-header")
+                    yield VerticalScroll(id="exploration-tasks")
+                    yield Static(id="exploration-todos")
                 yield ChatFeed(self, id="feed")
                 yield Static(id="status")
                 yield Button(f"{current_glyphs().down} New output", id="scroll-bottom")
@@ -640,6 +718,68 @@ class TermuxCoderApp(App):
         if self.settings.tui_auto_focus:
             self.call_after_refresh(self.action_focus_prompt)
         self.set_interval(1.6, self._tick)
+
+    # ── Exploration activity ─────────────────────────────
+    def begin_exploration(self, tasks: list[dict], todos: list[dict]) -> None:
+        self._exploration_visible = True
+        self._exploration_todos = list(todos)
+        self._exploration_widgets.clear()
+        try:
+            panel = self.query_one("#exploration-panel")
+            panel.add_class("-visible")
+            self.query_one("#exploration-tasks", VerticalScroll).remove_children()
+            self.query_one("#exploration-header", Static).update(
+                Text("GENERAL  Repository exploration", style="bold #ffffff")
+            )
+        except NoMatches:
+            return
+        for task in tasks:
+            self.update_exploration_task(task)
+        self.update_exploration_todos(todos)
+
+    def update_exploration_task(self, task: dict) -> None:
+        task_id = str(task.get("task_id", "task"))
+        widget = self._exploration_widgets.get(task_id)
+        if widget is None:
+            widget = TaskActivityWidget()
+            self._exploration_widgets[task_id] = widget
+            try:
+                self.query_one("#exploration-tasks", VerticalScroll).mount(widget)
+            except NoMatches:
+                return
+        widget.update_task(task)
+        self._render_exploration_header()
+
+    def update_exploration_todos(self, items: list[dict]) -> None:
+        self._exploration_todos = list(items)
+        glyphs = current_glyphs()
+        rendered = [f"TODOS  {len(items)} items"]
+        for item in items[:6]:
+            status = str(item.get("status", "pending"))
+            marker = {
+                "done": glyphs.check,
+                "running": glyphs.tree,
+                "failed": glyphs.cross,
+            }.get(status, glyphs.bullet)
+            rendered.append(f"{marker} {_compact_activity(item.get('title', item.get('todo_id', 'task')), 34)}")
+        try:
+            self.query_one("#exploration-todos", Static).update("  ".join(rendered))
+        except NoMatches:
+            pass
+
+    def _render_exploration_header(self) -> None:
+        running = sum(task.task.get("status") == "running" for task in self._exploration_widgets.values())
+        total_tokens = sum(int(task.task.get("token_count", 0)) for task in self._exploration_widgets.values())
+        text = Text("GENERAL  ", style="bold #ffffff")
+        text.append("Running" if running else "Complete", style=theme.WHITE if running else theme.GREEN)
+        text.append(f"  ({running}/{len(self._exploration_widgets)} tasks | {total_tokens / 1000:.1f}k tokens)", style=theme.DIM)
+        try:
+            self.query_one("#exploration-header", Static).update(text)
+        except NoMatches:
+            pass
+
+    def finish_exploration(self) -> None:
+        self._render_exploration_header()
 
     # ── State ─────────────────────────────────────────────
     def add_tokens(self, n: int) -> None:
@@ -802,6 +942,10 @@ class TermuxCoderApp(App):
 
     def action_toggle_tree(self) -> None:
         self.query_one("#tree").toggle_class("-visible")
+
+    def action_toggle_exploration(self) -> None:
+        self._exploration_visible = not self._exploration_visible
+        self.query_one("#exploration-panel").set_class(self._exploration_visible, "-visible")
 
     def action_focus_prompt(self) -> None:
         self.query_one("#prompt", Input).focus()
