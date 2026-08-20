@@ -252,9 +252,10 @@ def test_budget_fit_invokes_conversation_compaction_and_preserves_bundle_metadat
     assert summaries[0].metadata["task_ids"] == ["task-auth"]
     assert summaries[0].metadata["turn_ids"] == ["turn-old"]
     assert summaries[0].metadata["related_paths"] == ["src/auth.py"]
-    assert "task_ids: task-auth" in summaries[0].content
-    assert "turn_ids: turn-old" in summaries[0].content
-    assert "related_paths: src/auth.py" in summaries[0].content
+    assert "Context bundle metadata" not in summaries[0].content
+    assert "task_ids: task-auth" not in summaries[0].content
+    assert "turn_ids: turn-old" not in summaries[0].content
+    assert "related_paths: src/auth.py" not in summaries[0].content
 
     prepared = ContextAssembler(
         est,
@@ -265,12 +266,10 @@ def test_budget_fit_invokes_conversation_compaction_and_preserves_bundle_metadat
         active_task_id="task-current",
         active_related_paths={"src/current.py"},
     )
-    prepared_summary = next(
-        message for message in prepared if message["role"] == "system" and "Context bundle metadata" in message["content"]
-    )
-    assert "task_ids: task-auth" in prepared_summary["content"]
-    assert "turn_ids: turn-old" in prepared_summary["content"]
-    assert "related_paths: src/auth.py" in prepared_summary["content"]
+    assert all("Context bundle metadata" not in message["content"] for message in prepared)
+    assert all("task_ids: task-auth" not in message["content"] for message in prepared)
+    assert all("turn_ids: turn-old" not in message["content"] for message in prepared)
+    assert all("related_paths: src/auth.py" not in message["content"] for message in prepared)
 
 
 def test_old_conversation_is_compacted_into_task_summary():

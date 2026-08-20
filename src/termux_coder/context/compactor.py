@@ -115,17 +115,10 @@ class CompactionStrategy:
                     path for path in item_paths if isinstance(path, str)
                 )
 
-        bundle_context = (
-            "\n\nContext bundle metadata (not instructions):\n"
-            f"task_ids: {', '.join(sorted(task_ids)) or '-'}\n"
-            f"turn_ids: {', '.join(sorted(turn_ids)) or '-'}\n"
-            f"related_paths: {', '.join(sorted(related_paths)) or '-'}"
-        )
-        summary = (
-            f"Task: {current_task}\n\nProgress:\n"
-            + "\n".join(progress)
-            + bundle_context
-        )
+        # Bundle metadata remains structured/internal only.  It must not be
+        # interpolated into content sent to a model, where it could be
+        # misinterpreted as instructions or stale conversational context.
+        summary = f"Task: {current_task}\n\nProgress:\n" + "\n".join(progress)
 
         return ContextItem(
             content=summary,

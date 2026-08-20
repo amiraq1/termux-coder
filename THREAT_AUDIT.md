@@ -1,6 +1,6 @@
 # Threat Audit — termux-coder
 
-**Generated:** 2026-08-20T09:11:22.228070+00:00
+**Generated:** 2026-08-20T09:24:43.329127+00:00
 **Collected tests:** `460`
 
 > Status is evidence-based and repository-specific. It is not a security certification.
