@@ -30,6 +30,8 @@ class ExplorationEvent(BaseModel):
     tokens: int = 0
     status: Optional[str] = None
     elapsed_ms: float = 0.0
+    # Coverage report attached only to dissection_complete events.
+    summary: Optional[str] = None
 
 class ExplorationTask(BaseModel):
     turn_id: str
@@ -185,6 +187,7 @@ class ExplorationManager:
         paths: Iterable[str] = (),
         *,
         task: ExplorationTask | None = None,
+        summary: str | None = None,
     ) -> None:
         if self.on_update is None:
             return
@@ -198,6 +201,7 @@ class ExplorationManager:
             tokens=task.token_count if task else 0,
             status=task.status if task else None,
             elapsed_ms=task.elapsed_ms if task else 0.0,
+            summary=summary,
         )
         result = self.on_update(event)
         if asyncio.iscoroutine(result):
@@ -232,6 +236,28 @@ class ExplorationManager:
             detail=detail_msg,
             paths=paths,
             task=task
+        )
+
+    async def record_search(self, task_id: str, scope: str, count: int) -> None:
+        """Emit a canonical 'search' event once candidate files for a scope are discovered."""
+        task = self.task(task_id)
+        await self._notify(
+            "search",
+            task_id,
+            detail=f"searched {count} files in {scope}",
+            task=task,
+        )
+
+    async def record_read(self, task_id: str, rel: str, *, tokens: int = 0) -> None:
+        """Emit a canonical 'read' event once a file's content has been consumed."""
+        task = self.task(task_id)
+        task.record(f"READ {rel}", tokens=tokens, paths=[rel])
+        await self._notify(
+            "read",
+            task_id,
+            detail=rel,
+            paths=[rel],
+            task=task,
         )
 
     async def finish_task(
@@ -284,7 +310,9 @@ class ExplorationManager:
                 return result
 
         results = list(await asyncio.gather(*(guarded(task) for task in tasks)))
-        await self._notify("dissection_complete", "dissect_all")
+        await self._notify(
+            "dissection_complete", "dissect_all", summary=self.get_summary()
+        )
         return results
 
     def get_summary(self) -> str:
@@ -295,8 +323,12 @@ class ExplorationManager:
         for t in self.todos:
             if t.status != "completed":
                 task = self.tasks[t.todo_id]
-                summary += f"FAILED: {task.scope}\n"
-                summary += f"Reason: {task.error or t.status}\n"
+                # Distinct terminal-status labels so a timeout or cancellation
+                # is never reported as a generic failure.
+                label = t.status.upper()  # FAILED / TIMEOUT / CANCELLED / PENDING
+                duration_s = task.elapsed_ms / 1000
+                summary += f"{label}: {task.scope}\n"
+                summary += f"Reason: {task.error or t.status} ({duration_s:.1f}s)\n"
 
         if completed == total:
             summary += "Result: full repository understanding\n"

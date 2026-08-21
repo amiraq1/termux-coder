@@ -37,6 +37,16 @@ class CliUI(AgentUI):
             return
         if kind in ("assistant_done", "turn_end"):
             return
+        # The dissection coverage summary is a result, not routine progress —
+        # it stays visible even in quiet mode so partial coverage never hides.
+        if kind == "exploration_update":
+            event = payload.get("event") or {}
+            summary = event.get("summary")
+            if summary:
+                print(summary.rstrip())
+                return
+            if not self.show_thinking:
+                return
         # In quiet mode, routine progress stays hidden, but safety and
         # failure outcomes remain visible so a failed change never disappears.
         if not self.show_thinking:

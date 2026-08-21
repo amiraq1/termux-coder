@@ -198,10 +198,10 @@ class TaskActivityWidget(Static):
 
     def __init__(self, task: dict | None = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.task = task or {}
+        self._task_data = task or {}
 
     def update_task(self, task: dict) -> None:
-        self.task = task
+        self._task_data = task
         status = str(task.get("status", "pending")).upper()
         title = _compact_activity(task.get("title", task.get("task_id", "task")), 30)
         elapsed = float(task.get("elapsed_ms", 0.0)) / 1000
@@ -211,8 +211,8 @@ class TaskActivityWidget(Static):
             "PENDING": glyphs.bullet,
             "RUNNING": glyphs.tree,
             "DONE": glyphs.check,
-            "FAILED": glyphs.cross,
-            "CANCELLED": glyphs.cross,
+            "FAILED": glyphs.status_offline,
+            "CANCELLED": glyphs.status_offline,
         }.get(status, glyphs.bullet)
         style = {
             "RUNNING": theme.WHITE,
@@ -230,7 +230,7 @@ class TaskActivityWidget(Static):
         for event in list(task.get("events", []))[-3:]:
             lines.append(Text(f"  {glyphs.tree} {_compact_activity(event, 92)}", style=theme.DIM))
         if task.get("error"):
-            lines.append(Text(f"  {glyphs.cross} {_compact_activity(task['error'], 92)}", style=theme.RED))
+            lines.append(Text(f"  {glyphs.status_offline} {_compact_activity(task['error'], 92)}", style=theme.RED))
         self.update("\n".join(line.plain for line in lines))
         self.styles.color = style
 
@@ -849,9 +849,9 @@ class TermuxCoderApp(App):
                 "pending": glyphs.bullet,
                 "running": glyphs.tree,
                 "completed": glyphs.check,
-                "failed": glyphs.cross,
-                "timeout": glyphs.cross,
-                "cancelled": glyphs.cross,
+                "failed": glyphs.status_offline,
+                "timeout": glyphs.status_offline,
+                "cancelled": glyphs.status_offline,
             }.get(status, glyphs.bullet)
             rendered.append(f"{marker} {_compact_activity(item.get('title', item.get('todo_id', 'task')), 34)}")
         try:
@@ -860,8 +860,8 @@ class TermuxCoderApp(App):
             pass
 
     def _render_exploration_header(self) -> None:
-        running = sum(task.task.get("status") == "running" for task in self._exploration_widgets.values())
-        total_tokens = sum(int(task.task.get("token_count", 0)) for task in self._exploration_widgets.values())
+        running = sum(task._task_data.get("status") == "running" for task in self._exploration_widgets.values())
+        total_tokens = sum(int(task._task_data.get("token_count", 0)) for task in self._exploration_widgets.values())
         text = Text("GENERAL  ", style="bold #ffffff")
         text.append("Running" if running else "Complete", style=theme.WHITE if running else theme.GREEN)
         text.append(f"  ({running}/{len(self._exploration_widgets)} tasks | {total_tokens / 1000:.1f}k tokens)", style=theme.DIM)
@@ -909,7 +909,7 @@ class TermuxCoderApp(App):
                 task["title"] = event["title"]
             task["token_count"] = int(event.get("tokens", 0))
             task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
-        elif ev_kind == "task_progress":
+        elif ev_kind in ("task_progress", "search", "read"):
             detail = event.get("detail", "")
             if detail:
                 task["events"].append(detail)

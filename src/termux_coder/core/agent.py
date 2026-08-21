@@ -171,8 +171,16 @@ class Agent:
         self.exploration_stream = ExplorationEventStream()
         self.exploration_manager: ExplorationManager | None = None
         async def forward_exploration_event(event) -> None:
-            # We don't have event.snapshot() anymore, ExplorationEvent is a BaseModel
-            await self.ui.on_event("exploration_update", event=event.model_dump(mode="json"))
+            payload = event.model_dump(mode="json")
+            self.audit.log(
+                f"exploration_{payload['kind']}",
+                turn_id=payload.get("turn_id"),
+                task_id=payload.get("task_id"),
+                related_paths=payload.get("related_paths") or [],
+                status=payload.get("status"),
+                error=payload.get("error"),
+            )
+            await self.ui.on_event("exploration_update", event=payload)
         self.exploration_stream.subscribe(forward_exploration_event)
         self.trace_store = (
             TraceStore(settings.state_dir / "traces.jsonl")
@@ -291,6 +299,7 @@ class Agent:
                         if not any(part in {".git", ".venv", "__pycache__"} for part in path.parts)
                     )
             paths = sorted(paths)[:12]
+            await self.exploration_manager.record_search(task.task_id, task.scope, len(paths))
             for path in paths:
                 if self.exploration_manager._cancelled:
                     break
@@ -299,12 +308,10 @@ class Agent:
                         path.read_text, encoding="utf-8", errors="replace"
                     )
                     rel = str(path.relative_to(root))
-                    await self.exploration_manager.record_tool(
+                    await self.exploration_manager.record_read(
                         task.task_id,
-                        "read_file",
                         rel,
                         tokens=max(1, len(content) // 4),
-                        paths=[rel]
                     )
                 except (OSError, UnicodeError):
                     continue

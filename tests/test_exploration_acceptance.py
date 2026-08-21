@@ -60,12 +60,27 @@ def test_read_only_exploration_acceptance_cycle(tmp_path):
         updates = [payload["event"] for kind, payload in ui.events if kind == "exploration_update"]
 
         event_kinds = [e["kind"] for e in updates]
+        assert event_kinds.count("dissection_start") == 1
+        assert event_kinds.count("dissection_complete") == 1
         assert event_kinds.count("task_start") == 6
         assert event_kinds.count("task_completed") == 6
 
-        tool_events = [e for e in updates if e["kind"] == "task_progress"]
-        assert tool_events
-        assert all("read_file" in e["detail"] for e in tool_events)
+        # dissection_complete carries the coverage summary for the UI.
+        completion = next(e for e in updates if e["kind"] == "dissection_complete")
+        assert "Coverage: 6/6 completed" in completion["summary"]
+        assert "full repository understanding" in completion["summary"]
+
+        # Canonical 'search' event once per scope (6 scopes).
+        search_events = [e for e in updates if e["kind"] == "search"]
+        assert len(search_events) == 6
+        # Canonical 'read' events carry the file path in both detail and related_paths.
+        read_events = [e for e in updates if e["kind"] == "read"]
+        assert read_events
+        assert all(e.get("related_paths") for e in read_events)
+        # Every event carries the canonical turn_id + task_id envelope.
+        for e in updates:
+            assert e.get("turn_id") == "turn_123"
+            assert e.get("task_id")
         assert len(agent.exploration_manager.tasks) == 6
         assert all(task.status == "completed" for task in agent.exploration_manager.tasks.values())
 
