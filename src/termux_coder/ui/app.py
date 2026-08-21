@@ -409,12 +409,8 @@ class TextualUI(AgentUI):
 
         elif kind == "exploration_start":
             self.app.begin_exploration(payload.get("tasks", []), payload.get("todos", []))
-        elif kind in {"exploration_task_start", "exploration_task_end", "exploration_tool_result"}:
-            task = payload.get("task")
-            if task:
-                self.app.update_exploration_task(task)
-        elif kind == "exploration_todos":
-            self.app.update_exploration_todos(payload.get("items", []))
+        elif kind == "exploration_update":
+            self.app._handle_exploration_event(payload.get("event") or {})
         elif kind == "exploration_end":
             self.app.finish_exploration()
 
@@ -642,6 +638,7 @@ class TermuxCoderApp(App):
         Binding("alt+a", "toggle_context_actions", "actions", show=False),
         Binding("ctrl+shift+c", "copy_last_answer", "copy answer", show=False),
         Binding("ctrl+x", "toggle_exploration", "exploration", show=False),
+        Binding("ctrl+shift+x", "cancel_exploration", "cancel explore", show=False),
     ]
     CSS = """
     Screen { background: #000000; color: #e6e6f0; }
@@ -694,6 +691,7 @@ class TermuxCoderApp(App):
         self._last_answer_text = ""
         self._last_answer_widget = None
         self._exploration_widgets: dict[str, TaskActivityWidget] = {}
+        self._exploration_tasks: dict[str, dict] = {}
         self._exploration_todos: list[dict] = []
         self._exploration_visible = False
         self._exploration_last_render = 0.0
@@ -767,6 +765,7 @@ class TermuxCoderApp(App):
         self._exploration_visible = True
         self._exploration_todos = list(todos)
         self._exploration_widgets.clear()
+        self._exploration_tasks.clear()
         self._exploration_pending_tasks.clear()
         self._exploration_pending_todos = None
         self._exploration_render_dirty = False
@@ -847,9 +846,12 @@ class TermuxCoderApp(App):
         for item in items[:6]:
             status = str(item.get("status", "pending"))
             marker = {
-                "done": glyphs.check,
+                "pending": glyphs.bullet,
                 "running": glyphs.tree,
+                "completed": glyphs.check,
                 "failed": glyphs.cross,
+                "timeout": glyphs.cross,
+                "cancelled": glyphs.cross,
             }.get(status, glyphs.bullet)
             rendered.append(f"{marker} {_compact_activity(item.get('title', item.get('todo_id', 'task')), 34)}")
         try:
@@ -871,6 +873,70 @@ class TermuxCoderApp(App):
     def finish_exploration(self) -> None:
         self._flush_exploration_updates(force=True)
         self._render_exploration_header()
+
+    def _handle_exploration_event(self, event: dict) -> None:
+        """Reconcile a lean ExplorationEvent (forwarded as 'exploration_update')
+        into per-task widget state and the compact todo row.
+
+        Each event carries only kind/task_id/detail/paths (+ optional
+        UI enrichment), so the TUI keeps its own cumulative task dict and
+        derives the todo summary from it.
+        """
+        task_id = str(event.get("task_id", ""))
+        ev_kind = event.get("kind", "")
+
+        # Lifecycle-only events have no individual task to render.
+        if task_id in ("", "dissect_all"):
+            if ev_kind == "dissection_complete":
+                self._render_exploration_header()
+            return
+
+        task = self._exploration_tasks.get(task_id)
+        if task is None:
+            task = {
+                "task_id": task_id,
+                "title": event.get("title") or task_id,
+                "status": "pending",
+                "token_count": 0,
+                "elapsed_ms": 0.0,
+                "events": [],
+            }
+            self._exploration_tasks[task_id] = task
+
+        if ev_kind == "task_start":
+            task["status"] = "running"
+            if event.get("title"):
+                task["title"] = event["title"]
+            task["token_count"] = int(event.get("tokens", 0))
+            task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
+        elif ev_kind == "task_progress":
+            detail = event.get("detail", "")
+            if detail:
+                task["events"].append(detail)
+                if len(task["events"]) > 40:
+                    task["events"] = task["events"][-40:]
+            task["token_count"] = int(event.get("tokens", 0))
+            task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
+            if event.get("status"):
+                task["status"] = event["status"]
+            related = event.get("related_paths")
+            if related:
+                task["related_paths"] = list(related)
+        elif ev_kind in ("task_completed", "task_failed", "task_timeout", "task_cancelled"):
+            task["status"] = ev_kind.replace("task_", "")
+            task["token_count"] = int(event.get("tokens", 0))
+            task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
+            if event.get("detail"):
+                task["error"] = event["detail"]
+
+        self.update_exploration_task(task)
+
+        # Mirror cumulative task statuses into the compact todo row.
+        todo_items = [
+            {"todo_id": tid, "title": t.get("title", tid), "status": t["status"]}
+            for tid, t in self._exploration_tasks.items()
+        ]
+        self.update_exploration_todos(todo_items)
 
     # ── State ─────────────────────────────────────────────
     def add_tokens(self, n: int) -> None:
@@ -1038,6 +1104,26 @@ class TermuxCoderApp(App):
         self._exploration_visible = not self._exploration_visible
         self.query_one("#exploration-panel").set_class(self._exploration_visible, "-visible")
 
+    def action_cancel_exploration(self) -> None:
+        """Request cooperative cancellation of active read-only exploration.
+
+        Sets the manager's cancel flag so every guard path in run() transitions
+        pending tasks to 'cancelled' and lets the in-flight worker drain. No
+        task is left stuck in 'running'; terminal events propagate back to the
+        panel via exploration_update.
+        """
+        manager = getattr(self.agent, "exploration_manager", None)
+        if manager is None:
+            feed = self.query_one("#feed", ChatFeed)
+            feed.mount(Static(Text("no active exploration to cancel", style=theme.DIM)))
+            feed.scroll_end(animate=False)
+            return
+        manager.cancel()
+        self._render_exploration_header()
+        feed = self.query_one("#feed", ChatFeed)
+        feed.mount(Static(Text(f"{current_glyphs().cross} exploration cancelled", style=theme.ORANGE)))
+        feed.scroll_end(animate=False)
+
     def action_focus_prompt(self) -> None:
         self.query_one("#prompt", Input).focus()
 
@@ -1190,7 +1276,30 @@ class TermuxCoderApp(App):
 
         if text == "/new" and self.store:
             self.agent = build_agent(self.settings, TextualUI(self), store=self.store)
-            feed.mount(Static(tool_line("SESSION", self.agent.session_id, "new")))
+            feed.mount(tool_line("SESSION", self.agent.session_id, "new"))
+            return True
+
+        if text == "/dissect" or text.startswith("/dissect "):
+            query = text[len("/dissect"):].strip()
+            if not query:
+                feed.mount(
+                    Static(
+                        Text(
+                            "usage: /dissect <query> — run one turn with dissection (read-only) mode; mutations are denied before preview",
+                            style=theme.DIM,
+                        )
+                    )
+                )
+                return True
+            feed.mount(
+                Static(
+                    Text(
+                        f"{current_glyphs().tree} dissection mode: write/execute tools will be DENIED",
+                        style=theme.ORANGE,
+                    )
+                )
+            )
+            self.run_agent(query, dissection_mode=True)
             return True
 
         if (text == "/resume" or text.startswith("/resume ")) and self.store:
@@ -1298,10 +1407,13 @@ class TermuxCoderApp(App):
             self.hide_context_actions()
 
     @work(exclusive=True)
-    async def run_agent(self, text: str) -> None:
+    async def run_agent(self, text: str, dissection_mode: bool = False) -> None:
         ui = TextualUI(self)
         self.agent.ui = ui
         self.agent.ctx.ui = ui
+        previous_dissection = self.settings.dissection_mode
+        if dissection_mode:
+            self.settings.dissection_mode = True
         try:
             await self.agent.run_turn(text)
         except Exception as exc:
@@ -1318,4 +1430,6 @@ class TermuxCoderApp(App):
             feed = self.query_one("#feed", ChatFeed)
             feed.mount(Static(Text(msg, style=theme.RED)))
             feed.scroll_end(animate=False)
+        finally:
+            self.settings.dissection_mode = previous_dissection
         self.query_one(DirectoryTree).reload()

@@ -304,6 +304,42 @@ def _latest_assistant_text(agent) -> str:
     return ""
 
 
+async def _run_turn_agent(agent, settings, text: str) -> None:
+    """Run one agent turn with timing, formatting, and error handling."""
+    started = time.monotonic()
+    detailed = wants_detailed_report(text)
+    local_reply = _friendly_reply(text)
+    if local_reply is not None:
+        print()
+        logo.ctrl("answer")
+        print(local_reply)
+        logo.ctrl("ready", f"{time.monotonic() - started:.1f}s")
+        return
+
+    try:
+        await agent.run_turn(text)
+        turn_result = getattr(agent, "last_turn_result", None)
+        turn_state = getattr(getattr(turn_result, "state", None), "value", None)
+        if turn_result is None or turn_state == "idle":
+            final_text = _format_final_answer(
+                agent,
+                turn_result,
+                show_thinking=settings.show_thinking,
+                detailed=detailed,
+            )
+            if final_text:
+                print()
+                logo.ctrl("answer")
+                print(final_text)
+    except AuthenticationError:
+        print(logo.paint("Authentication failed: the API key is missing or invalid.", logo.TEAL))
+        print("Load your environment file before starting the agent.")
+    except Exception as exc:
+        print(f"error: {exc}")
+    finally:
+        logo.ctrl("ready", f"{time.monotonic() - started:.1f}s")
+
+
 async def cli_main(settings: Settings) -> None:
     logo.print_banner()
 
@@ -363,37 +399,18 @@ async def cli_main(settings: Settings) -> None:
             logo.ctrl("session", f"{agent.session_id} · resumed ({len(agent.messages) - 1} messages)")
             continue
 
-        started = time.monotonic()
-        detailed = wants_detailed_report(text)
-        local_reply = _friendly_reply(text)
-        if local_reply is not None:
-            print()
-            logo.ctrl("answer")
-            print(local_reply)
-            logo.ctrl("ready", f"{time.monotonic() - started:.1f}s")
+        if text == "/dissect" or text.startswith("/dissect "):
+            query = text[len("/dissect"):].strip()
+            if not query:
+                print("usage: /dissect <query> — run one turn with dissection (read-only) mode")
+                continue
+            settings.dissection_mode = True
+            try:
+                await _run_turn_agent(agent, settings, query)
+            finally:
+                settings.dissection_mode = False
             continue
 
-        try:
-            await agent.run_turn(text)
-            turn_result = getattr(agent, "last_turn_result", None)
-            turn_state = getattr(getattr(turn_result, "state", None), "value", None)
-            if turn_result is None or turn_state == "idle":
-                final_text = _format_final_answer(
-                    agent,
-                    turn_result,
-                    show_thinking=settings.show_thinking,
-                    detailed=detailed,
-                )
-                if final_text:
-                    print()
-                    logo.ctrl("answer")
-                    print(final_text)
-        except AuthenticationError:
-            print(logo.paint("Authentication failed: the API key is missing or invalid.", logo.TEAL))
-            print("Load your environment file before starting the agent.")
-        except Exception as exc:
-            print(f"error: {exc}")
-        finally:
-            logo.ctrl("ready", f"{time.monotonic() - started:.1f}s")
+        await _run_turn_agent(agent, settings, text)
 
     await agent.close()

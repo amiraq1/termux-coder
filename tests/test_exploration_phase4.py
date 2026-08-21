@@ -130,3 +130,102 @@ def test_agent_orchestrator_receives_dissection_mode():
     )
 
     assert orchestrator.dissection_mode is True
+
+
+@pytest.mark.anyio
+async def test_dissection_mode_full_turn_denies_mutation_before_preview():
+    """Full turn → _evaluate_call: a mutation call is DENY'd before any preview."""
+    from termux_coder.providers.mock import MockProvider, MockResponse
+    from termux_coder.core.orchestrator import TurnState
+    from termux_coder.models.contracts import ErrorCode
+
+    mutation_called: list[object] = []
+    preview_calls: list[str] = []
+
+    class RecordingAudit:
+        def __init__(self) -> None:
+            self.events: list[dict] = []
+
+        def log(self, event: str, **data) -> None:
+            self.events.append({"event": event, **data})
+
+        def has(self, event: str) -> bool:
+            return any(e["event"] == event for e in self.events)
+
+    class MockRegistry:
+        def __init__(self, tools: dict) -> None:
+            self._tools = tools
+
+        def handler(self, name: str):
+            return self._tools.get(name)
+
+        def schemas(self):
+            return [{"function": {"name": n}} for n in self._tools]
+
+    async def fake_apply_patch(args, ctx):
+        mutation_called.append(True)
+        return "patched"
+
+    class CountingPreview:
+        def generate(self, *a, **k):
+            preview_calls.append("generate")
+            return None
+
+        def generate_symbol(self, *a, **k):
+            preview_calls.append("symbol")
+
+        def generate_plan(self, *a, **k):
+            preview_calls.append("plan")
+
+    class MockContext:
+        pass
+
+    audit = RecordingAudit()
+    provider = MockProvider([
+        MockResponse.with_tool("c1", "apply_patch", {"path": "x.py", "patch": "..."}),
+        MockResponse.text("I cannot patch in dissection mode."),
+    ])
+    registry = MockRegistry({"apply_patch": fake_apply_patch})
+
+    orchestrator = AgentOrchestrator(
+        provider=provider,
+        registry=registry,
+        policy_engine=PolicyEngine(mode="ASK"),
+        audit=audit,
+        ctx=MockContext(),
+        preview_service=CountingPreview(),
+        dissection_mode=True,
+        max_rounds=5,
+        max_duration_s=30.0,
+    )
+
+    msgs = [{"role": "user", "content": "analyze the repository structure"}]
+    result = await orchestrator.run_turn(msgs)
+
+    # 1. The mutation handler was never executed — denied before execution.
+    assert mutation_called == []
+    # 2. No preview was generated — denied BEFORE preview.
+    assert preview_calls == []
+    # 3. The audit trail recorded the denial.
+    assert audit.has("tool_denied")
+    # 4. The tool result carries a policy-deny error code.
+    assert any(r.error and r.error.code == ErrorCode.POLICY_DENY for r in result.tool_results)
+    # 5. The turn still terminates cleanly (denial feeds back to the model).
+    assert result.state == TurnState.IDLE
+
+
+def test_dissection_mode_setting_respects_env(monkeypatch):
+    from termux_coder.config import Settings
+
+    # Default: off (no env).
+    monkeypatch.delenv("TERMUX_CODER_DISSECT", raising=False)
+    monkeypatch.delenv("DISSECT", raising=False)
+    assert Settings().dissection_mode is False
+
+    # Env var enables it.
+    monkeypatch.setenv("TERMUX_CODER_DISSECT", "1")
+    assert Settings().dissection_mode is True
+
+    # Explicit off still respects False.
+    monkeypatch.setenv("TERMUX_CODER_DISSECT", "0")
+    assert Settings().dissection_mode is False

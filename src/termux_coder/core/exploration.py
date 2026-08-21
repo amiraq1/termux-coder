@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import deque
 from typing import Any, Awaitable, Callable, Iterable, Literal, List, Set, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -24,6 +23,13 @@ class ExplorationEvent(BaseModel):
     timestamp: float = Field(default_factory=time.monotonic)
     detail: Optional[str] = None
     related_paths: List[str] = Field(default_factory=list)
+    # Optional UI-facing enrichment. Kept optional so existing event
+    # construction (e.g. in tests) remains valid; the manager populates
+    # these from the live ExplorationTask when a task is involved.
+    title: Optional[str] = None
+    tokens: int = 0
+    status: Optional[str] = None
+    elapsed_ms: float = 0.0
 
 class ExplorationTask(BaseModel):
     turn_id: str
@@ -171,7 +177,15 @@ class ExplorationManager:
         except KeyError as exc:
             raise KeyError(f"unknown exploration task: {task_id}") from exc
 
-    async def _notify(self, kind: str, task_id: str, detail: str = "", paths: Iterable[str] = ()) -> None:
+    async def _notify(
+        self,
+        kind: str,
+        task_id: str,
+        detail: str = "",
+        paths: Iterable[str] = (),
+        *,
+        task: ExplorationTask | None = None,
+    ) -> None:
         if self.on_update is None:
             return
         event = ExplorationEvent(
@@ -179,7 +193,11 @@ class ExplorationManager:
             turn_id=self.turn_id,
             task_id=task_id,
             detail=detail,
-            related_paths=list(paths)
+            related_paths=list(paths),
+            title=task.title if task else None,
+            tokens=task.token_count if task else 0,
+            status=task.status if task else None,
+            elapsed_ms=task.elapsed_ms if task else 0.0,
         )
         result = self.on_update(event)
         if asyncio.iscoroutine(result):
@@ -188,8 +206,9 @@ class ExplorationManager:
     async def start_task(self, task_id: str) -> ExplorationTask:
         task = self.task(task_id)
         task.start()
+        task.refresh_elapsed()
         self.set_todo_status(task_id, "running")
-        await self._notify("task_start", task_id)
+        await self._notify("task_start", task_id, task=task)
         return task
 
     async def record_tool(
@@ -211,7 +230,8 @@ class ExplorationManager:
             "task_progress",
             task_id,
             detail=detail_msg,
-            paths=paths
+            paths=paths,
+            task=task
         )
 
     async def finish_task(
@@ -224,7 +244,7 @@ class ExplorationManager:
         task = self.task(task_id)
         task.finish(status, error)
         self.set_todo_status(task_id, status)
-        await self._notify(f"task_{status}", task_id, detail=error or "")
+        await self._notify(f"task_{status}", task_id, detail=error or "", task=task)
 
     def cancel(self) -> None:
         self._cancelled = True
