@@ -198,10 +198,10 @@ class TaskActivityWidget(Static):
 
     def __init__(self, task: dict | None = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.task = task or {}
+        self._task_data = task or {}
 
     def update_task(self, task: dict) -> None:
-        self.task = task
+        self._task_data = task
         status = str(task.get("status", "pending")).upper()
         title = _compact_activity(task.get("title", task.get("task_id", "task")), 30)
         elapsed = float(task.get("elapsed_ms", 0.0)) / 1000
@@ -211,8 +211,8 @@ class TaskActivityWidget(Static):
             "PENDING": glyphs.bullet,
             "RUNNING": glyphs.tree,
             "DONE": glyphs.check,
-            "FAILED": glyphs.cross,
-            "CANCELLED": glyphs.cross,
+            "FAILED": glyphs.status_offline,
+            "CANCELLED": glyphs.status_offline,
         }.get(status, glyphs.bullet)
         style = {
             "RUNNING": theme.WHITE,
@@ -230,7 +230,7 @@ class TaskActivityWidget(Static):
         for event in list(task.get("events", []))[-3:]:
             lines.append(Text(f"  {glyphs.tree} {_compact_activity(event, 92)}", style=theme.DIM))
         if task.get("error"):
-            lines.append(Text(f"  {glyphs.cross} {_compact_activity(task['error'], 92)}", style=theme.RED))
+            lines.append(Text(f"  {glyphs.status_offline} {_compact_activity(task['error'], 92)}", style=theme.RED))
         self.update("\n".join(line.plain for line in lines))
         self.styles.color = style
 
@@ -409,12 +409,8 @@ class TextualUI(AgentUI):
 
         elif kind == "exploration_start":
             self.app.begin_exploration(payload.get("tasks", []), payload.get("todos", []))
-        elif kind in {"exploration_task_start", "exploration_task_end", "exploration_tool_result"}:
-            task = payload.get("task")
-            if task:
-                self.app.update_exploration_task(task)
-        elif kind == "exploration_todos":
-            self.app.update_exploration_todos(payload.get("items", []))
+        elif kind == "exploration_update":
+            self.app._handle_exploration_event(payload.get("event") or {})
         elif kind == "exploration_end":
             self.app.finish_exploration()
 
@@ -605,6 +601,19 @@ class TextualUI(AgentUI):
         elif kind == "git":
             title = payload.get("title", "Git action?")
             body = payload.get("body", "")
+        elif kind == "write_file":
+            title = payload.get("title", "Approve file write?")
+            action = "create" if payload.get("creates_file") else "overwrite"
+            lines = [
+                f"Path: {payload.get('path', '')}",
+                f"Action: {action}",
+                f"Bytes: {payload.get('bytes', 0)}",
+            ]
+            if payload.get("old_sha256"):
+                lines.append(f"Old sha256: {payload['old_sha256'][:16]}…")
+            if payload.get("new_sha256"):
+                lines.append(f"New sha256: {payload['new_sha256'][:16]}…")
+            body = "\n".join(lines)
         else:
             title = "Run command?"
             body = payload.get("command", "")
@@ -642,6 +651,7 @@ class TermuxCoderApp(App):
         Binding("alt+a", "toggle_context_actions", "actions", show=False),
         Binding("ctrl+shift+c", "copy_last_answer", "copy answer", show=False),
         Binding("ctrl+x", "toggle_exploration", "exploration", show=False),
+        Binding("ctrl+shift+x", "cancel_exploration", "cancel explore", show=False),
     ]
     CSS = """
     Screen { background: #000000; color: #e6e6f0; }
@@ -694,6 +704,7 @@ class TermuxCoderApp(App):
         self._last_answer_text = ""
         self._last_answer_widget = None
         self._exploration_widgets: dict[str, TaskActivityWidget] = {}
+        self._exploration_tasks: dict[str, dict] = {}
         self._exploration_todos: list[dict] = []
         self._exploration_visible = False
         self._exploration_last_render = 0.0
@@ -767,6 +778,7 @@ class TermuxCoderApp(App):
         self._exploration_visible = True
         self._exploration_todos = list(todos)
         self._exploration_widgets.clear()
+        self._exploration_tasks.clear()
         self._exploration_pending_tasks.clear()
         self._exploration_pending_todos = None
         self._exploration_render_dirty = False
@@ -847,9 +859,12 @@ class TermuxCoderApp(App):
         for item in items[:6]:
             status = str(item.get("status", "pending"))
             marker = {
-                "done": glyphs.check,
+                "pending": glyphs.bullet,
                 "running": glyphs.tree,
-                "failed": glyphs.cross,
+                "completed": glyphs.check,
+                "failed": glyphs.status_offline,
+                "timeout": glyphs.status_offline,
+                "cancelled": glyphs.status_offline,
             }.get(status, glyphs.bullet)
             rendered.append(f"{marker} {_compact_activity(item.get('title', item.get('todo_id', 'task')), 34)}")
         try:
@@ -858,8 +873,8 @@ class TermuxCoderApp(App):
             pass
 
     def _render_exploration_header(self) -> None:
-        running = sum(task.task.get("status") == "running" for task in self._exploration_widgets.values())
-        total_tokens = sum(int(task.task.get("token_count", 0)) for task in self._exploration_widgets.values())
+        running = sum(task._task_data.get("status") == "running" for task in self._exploration_widgets.values())
+        total_tokens = sum(int(task._task_data.get("token_count", 0)) for task in self._exploration_widgets.values())
         text = Text("GENERAL  ", style="bold #ffffff")
         text.append("Running" if running else "Complete", style=theme.WHITE if running else theme.GREEN)
         text.append(f"  ({running}/{len(self._exploration_widgets)} tasks | {total_tokens / 1000:.1f}k tokens)", style=theme.DIM)
@@ -871,6 +886,70 @@ class TermuxCoderApp(App):
     def finish_exploration(self) -> None:
         self._flush_exploration_updates(force=True)
         self._render_exploration_header()
+
+    def _handle_exploration_event(self, event: dict) -> None:
+        """Reconcile a lean ExplorationEvent (forwarded as 'exploration_update')
+        into per-task widget state and the compact todo row.
+
+        Each event carries only kind/task_id/detail/paths (+ optional
+        UI enrichment), so the TUI keeps its own cumulative task dict and
+        derives the todo summary from it.
+        """
+        task_id = str(event.get("task_id", ""))
+        ev_kind = event.get("kind", "")
+
+        # Lifecycle-only events have no individual task to render.
+        if task_id in ("", "dissect_all"):
+            if ev_kind == "dissection_complete":
+                self._render_exploration_header()
+            return
+
+        task = self._exploration_tasks.get(task_id)
+        if task is None:
+            task = {
+                "task_id": task_id,
+                "title": event.get("title") or task_id,
+                "status": "pending",
+                "token_count": 0,
+                "elapsed_ms": 0.0,
+                "events": [],
+            }
+            self._exploration_tasks[task_id] = task
+
+        if ev_kind == "task_start":
+            task["status"] = "running"
+            if event.get("title"):
+                task["title"] = event["title"]
+            task["token_count"] = int(event.get("tokens", 0))
+            task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
+        elif ev_kind in ("task_progress", "search", "read"):
+            detail = event.get("detail", "")
+            if detail:
+                task["events"].append(detail)
+                if len(task["events"]) > 40:
+                    task["events"] = task["events"][-40:]
+            task["token_count"] = int(event.get("tokens", 0))
+            task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
+            if event.get("status"):
+                task["status"] = event["status"]
+            related = event.get("related_paths")
+            if related:
+                task["related_paths"] = list(related)
+        elif ev_kind in ("task_completed", "task_failed", "task_timeout", "task_cancelled"):
+            task["status"] = ev_kind.replace("task_", "")
+            task["token_count"] = int(event.get("tokens", 0))
+            task["elapsed_ms"] = float(event.get("elapsed_ms", 0.0))
+            if event.get("detail"):
+                task["error"] = event["detail"]
+
+        self.update_exploration_task(task)
+
+        # Mirror cumulative task statuses into the compact todo row.
+        todo_items = [
+            {"todo_id": tid, "title": t.get("title", tid), "status": t["status"]}
+            for tid, t in self._exploration_tasks.items()
+        ]
+        self.update_exploration_todos(todo_items)
 
     # ── State ─────────────────────────────────────────────
     def add_tokens(self, n: int) -> None:
@@ -1038,6 +1117,26 @@ class TermuxCoderApp(App):
         self._exploration_visible = not self._exploration_visible
         self.query_one("#exploration-panel").set_class(self._exploration_visible, "-visible")
 
+    def action_cancel_exploration(self) -> None:
+        """Request cooperative cancellation of active read-only exploration.
+
+        Sets the manager's cancel flag so every guard path in run() transitions
+        pending tasks to 'cancelled' and lets the in-flight worker drain. No
+        task is left stuck in 'running'; terminal events propagate back to the
+        panel via exploration_update.
+        """
+        manager = getattr(self.agent, "exploration_manager", None)
+        if manager is None:
+            feed = self.query_one("#feed", ChatFeed)
+            feed.mount(Static(Text("no active exploration to cancel", style=theme.DIM)))
+            feed.scroll_end(animate=False)
+            return
+        manager.cancel()
+        self._render_exploration_header()
+        feed = self.query_one("#feed", ChatFeed)
+        feed.mount(Static(Text(f"{current_glyphs().cross} exploration cancelled", style=theme.ORANGE)))
+        feed.scroll_end(animate=False)
+
     def action_focus_prompt(self) -> None:
         self.query_one("#prompt", Input).focus()
 
@@ -1190,7 +1289,30 @@ class TermuxCoderApp(App):
 
         if text == "/new" and self.store:
             self.agent = build_agent(self.settings, TextualUI(self), store=self.store)
-            feed.mount(Static(tool_line("SESSION", self.agent.session_id, "new")))
+            feed.mount(tool_line("SESSION", self.agent.session_id, "new"))
+            return True
+
+        if text == "/dissect" or text.startswith("/dissect "):
+            query = text[len("/dissect"):].strip()
+            if not query:
+                feed.mount(
+                    Static(
+                        Text(
+                            "usage: /dissect <query> — run one turn with dissection (read-only) mode; mutations are denied before preview",
+                            style=theme.DIM,
+                        )
+                    )
+                )
+                return True
+            feed.mount(
+                Static(
+                    Text(
+                        f"{current_glyphs().tree} dissection mode: write/execute tools will be DENIED",
+                        style=theme.ORANGE,
+                    )
+                )
+            )
+            self.run_agent(query, dissection_mode=True)
             return True
 
         if (text == "/resume" or text.startswith("/resume ")) and self.store:
@@ -1298,10 +1420,13 @@ class TermuxCoderApp(App):
             self.hide_context_actions()
 
     @work(exclusive=True)
-    async def run_agent(self, text: str) -> None:
+    async def run_agent(self, text: str, dissection_mode: bool = False) -> None:
         ui = TextualUI(self)
         self.agent.ui = ui
         self.agent.ctx.ui = ui
+        previous_dissection = self.settings.dissection_mode
+        if dissection_mode:
+            self.settings.dissection_mode = True
         try:
             await self.agent.run_turn(text)
         except Exception as exc:
@@ -1318,4 +1443,6 @@ class TermuxCoderApp(App):
             feed = self.query_one("#feed", ChatFeed)
             feed.mount(Static(Text(msg, style=theme.RED)))
             feed.scroll_end(animate=False)
+        finally:
+            self.settings.dissection_mode = previous_dissection
         self.query_one(DirectoryTree).reload()

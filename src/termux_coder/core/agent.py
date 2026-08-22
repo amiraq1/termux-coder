@@ -169,14 +169,18 @@ class Agent:
         )
         self._repo_map_task: asyncio.Task | None = None
         self.exploration_stream = ExplorationEventStream()
-        self.exploration_manager = ExplorationManager(
-            max_tasks=int(getattr(settings, "exploration_max_tasks", 6)),
-            on_update=self.exploration_stream,
-        )
-
-        async def forward_exploration_event(kind: str, payload: dict) -> None:
-            await self.ui.on_event(kind, **payload)
-
+        self.exploration_manager: ExplorationManager | None = None
+        async def forward_exploration_event(event) -> None:
+            payload = event.model_dump(mode="json")
+            self.audit.log(
+                f"exploration_{payload['kind']}",
+                turn_id=payload.get("turn_id"),
+                task_id=payload.get("task_id"),
+                related_paths=payload.get("related_paths") or [],
+                status=payload.get("status"),
+                error=payload.get("error"),
+            )
+            await self.ui.on_event("exploration_update", event=payload)
         self.exploration_stream.subscribe(forward_exploration_event)
         self.trace_store = (
             TraceStore(settings.state_dir / "traces.jsonl")
@@ -260,32 +264,26 @@ class Agent:
             )
             return None
 
-    async def _run_read_only_exploration(self) -> None:
+    async def _run_read_only_exploration(self, turn_id: str) -> None:
+        self.exploration_manager = ExplorationManager(
+            turn_id=turn_id,
+            max_tasks=int(getattr(self.settings, "exploration_max_tasks", 6)),
+            on_update=self.exploration_stream,
+        )
         specs = [
-            ExplorationTaskSpec("core", "core subsystem", "src/termux_coder/core"),
-            ExplorationTaskSpec("tools", "tools subsystem", "src/termux_coder/tools"),
-            ExplorationTaskSpec("providers", "providers subsystem", "src/termux_coder/providers"),
-            ExplorationTaskSpec("security", "security and models", "src/termux_coder/security,src/termux_coder/models"),
-            ExplorationTaskSpec("ui", "UI subsystem", "src/termux_coder/ui"),
-            ExplorationTaskSpec("tests", "tests and docs", "tests,README.md"),
+            ExplorationTaskSpec(task_id=f"dissect:{turn_id}:{spec[0]}", title=spec[1], scope=spec[2])
+            for spec in [
+                ("security-network", "Security Network", "src/termux_coder/security,src/termux_coder/models"),
+                ("tools", "Tools", "src/termux_coder/tools"),
+                ("core", "Core", "src/termux_coder/core"),
+                ("providers-models", "Providers and Models", "src/termux_coder/providers,src/termux_coder/models"),
+                ("ui-lsp", "UI and LSP", "src/termux_coder/ui,src/termux_coder/lsp"),
+                ("tests-docs", "Tests and Docs", "tests,README.md"),
+            ]
         ]
-        tasks = [
-            {
-                "task_id": spec.task_id,
-                "title": spec.title,
-                "scope": spec.scope,
-                "status": "pending",
-                "elapsed_ms": 0.0,
-                "token_count": 0,
-                "events": [],
-            }
-            for spec in specs
-        ]
-        todos = [
-            {"todo_id": spec.task_id, "title": spec.title, "status": "pending"}
-            for spec in specs
-        ]
-        await self.ui.on_event("exploration_start", tasks=tasks, todos=todos)
+        tasks = [] # Handled by ExplorationEventStream updates
+        todos = [] # Handled by ExplorationEventStream updates
+        await self.ui.on_event("exploration_start")
 
         async def worker(task):
             root = self.jail.root
@@ -301,6 +299,7 @@ class Agent:
                         if not any(part in {".git", ".venv", "__pycache__"} for part in path.parts)
                     )
             paths = sorted(paths)[:12]
+            await self.exploration_manager.record_search(task.task_id, task.scope, len(paths))
             for path in paths:
                 if self.exploration_manager._cancelled:
                     break
@@ -309,9 +308,8 @@ class Agent:
                         path.read_text, encoding="utf-8", errors="replace"
                     )
                     rel = str(path.relative_to(root))
-                    await self.exploration_manager.record_tool(
+                    await self.exploration_manager.record_read(
                         task.task_id,
-                        "read_file",
                         rel,
                         tokens=max(1, len(content) // 4),
                     )
@@ -327,13 +325,13 @@ class Agent:
     async def _run_turn_orchestrated(self, user_text: str) -> None:
         """مسار P2 التجريبي؛ يحافظ على عقد الجلسة ويستخدم المسار القديم كخطة تراجع."""
         self._clear_turn_research_context()
+        self._active_bundle = TurnBundle.create(user_text, self.session_id)
         if (
             getattr(self.settings, "exploration_enabled", True)
             and wants_detailed_report(user_text)
         ):
-            await self._run_read_only_exploration()
+            await self._run_read_only_exploration(self._active_bundle.turn_id)
 
-        self._active_bundle = TurnBundle.create(user_text, self.session_id)
         user_message = {
             "role": "user",
             "content": user_text,
@@ -392,12 +390,13 @@ class Agent:
             message_sink=self._persist,
             message_preparer=prepare_messages,
             preview_service=PatchPreviewService(self.jail, self.state),
-                            verification_runner=(
+                verification_runner=(
                     VerificationRunner(self.jail.root, self.settings)
                     if self.settings.verification_enabled else None
                 ),
                 trace_store=self.trace_store,
                 impact_analyzer=self.impact_analyzer,
+                dissection_mode=getattr(self.settings, "dissection_mode", False),
             )
 
         try:
@@ -413,14 +412,16 @@ class Agent:
                     error=result.error or "",
                 )
         finally:
-            self.exploration_manager.cancel()
+            if self.exploration_manager:
+                self.exploration_manager.cancel()
             self._clear_turn_research_context()
             self._active_bundle = None
             # Always release the TUI busy state, including failure and cancellation.
             await self.ui.on_event("turn_end")
 
     async def close(self) -> None:
-        self.exploration_manager.cancel()
+        if getattr(self, "exploration_manager", None):
+            self.exploration_manager.cancel()
         if self.lsp is not None:
             await self.lsp.shutdown()
         if self.store:

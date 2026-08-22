@@ -132,6 +132,13 @@ class Settings:
     analyzing_enabled: bool = field(
         default_factory=lambda: _env("ANALYZING", "0") == "1"
     )
+    # Read-only dissection safety net: when enabled, the orchestrator DENYs
+    # any tool requiring write/execute permission before it can produce a
+    # patch preview. Off by default; set TERMUX_CODER_DISSECT=1 to enable
+    # globally, or use the /dissect slash command for a single turn.
+    dissection_mode: bool = field(
+        default_factory=lambda: _env("DISSECT", "0") == "1"
+    )
     verification_timeout_s: float = field(
         default_factory=lambda: float(_env("VERIFICATION_TIMEOUT", "30"))
     )
