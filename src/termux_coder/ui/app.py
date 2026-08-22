@@ -601,6 +601,19 @@ class TextualUI(AgentUI):
         elif kind == "git":
             title = payload.get("title", "Git action?")
             body = payload.get("body", "")
+        elif kind == "write_file":
+            title = payload.get("title", "Approve file write?")
+            action = "create" if payload.get("creates_file") else "overwrite"
+            lines = [
+                f"Path: {payload.get('path', '')}",
+                f"Action: {action}",
+                f"Bytes: {payload.get('bytes', 0)}",
+            ]
+            if payload.get("old_sha256"):
+                lines.append(f"Old sha256: {payload['old_sha256'][:16]}…")
+            if payload.get("new_sha256"):
+                lines.append(f"New sha256: {payload['new_sha256'][:16]}…")
+            body = "\n".join(lines)
         else:
             title = "Run command?"
             body = payload.get("command", "")

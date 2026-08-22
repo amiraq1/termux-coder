@@ -10,7 +10,7 @@ from .core.detail import wants_detailed_report
 from .core.agent import Agent
 from .core.registry import ToolRegistry
 from .core.session import SessionStore
-from .tools import edit, fs, shell, todos, maptool, gittool, lsptool, transaction, web_search, fetch_page, symbol
+from .tools import edit, fs, shell, todos, maptool, gittool, lsptool, transaction, web_search, fetch_page, symbol, writefile
 from .ui.cli import CliUI
 
 
@@ -51,6 +51,14 @@ def build_registry() -> ToolRegistry:
         "Modify or create a file using SEARCH/REPLACE blocks. Shows a diff and requires human approval.",
         edit.ApplyPatchArgs,
         edit.apply_patch,
+    )
+    reg.register(
+        "write_file",
+        "Create a report or generated artifact file (policy-gated, atomic write). "
+        "Paths outside the workspace are only allowed in the SD-card report folder "
+        "and require an explicit save request. Shows path/hash/size preview and requires approval.",
+        writefile.WriteFileArgs,
+        writefile.write_file,
     )
     reg.register(
         "apply_symbol_patch",

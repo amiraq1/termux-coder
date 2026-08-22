@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,7 @@ from ..models.contracts import (
     ProviderResponse,
     ToolCall,
     ToolResult,
+    WriteFilePreview,
 )
 from ..security.audit import AuditLog
 from ..security.jail import JailViolation
@@ -38,6 +40,14 @@ from ..security.policy import Permission, PolicyEngine
 from .registry import ToolRegistry
 from .recovery import recover_tool_calls, sanitize_tool_calls
 from ..tools.preview import PatchPreviewService, PreviewError
+import hashlib
+from pydantic import ValidationError
+from ..tools.writefile import (
+    PathPolicyError as WritePathPolicyError,
+    WriteFileArgs,
+    has_external_save_intent,
+    resolve_write_target,
+)
 from .trace import TraceStore
 from .verification import VerificationRunner, VerificationStatus
 from .impact import ImpactAnalyzer, extract_target
@@ -152,8 +162,6 @@ MUTATION_TOOLS = frozenset({
     "delete_file",
 })
 MAX_MUTATIONS_WITHOUT_VERIFICATION = 4
-
-import re
 
 WORKSPACE_TOOLS = frozenset({
     "read_file",
@@ -371,7 +379,55 @@ class AgentOrchestrator:
             deny_reason = None
             preview = None
             preview_error = None
-            if call.name in {"apply_patch", "apply_symbol_patch", "apply_patch_plan"} and self._preview_service is not None:
+            if call.name == "write_file":
+                # Safe Preview for write_file: resolve the target through the
+                # centralized policy and attach a path/hash/size snapshot.
+                try:
+                    args = WriteFileArgs.model_validate(dict(call.arguments))
+                    external_intent = has_external_save_intent(self._user_text)
+                    resolved, external = resolve_write_target(
+                        self.ctx.jail, args.path, external_intent=external_intent
+                    )
+                    exists = resolved.exists()
+                    old_hash = (
+                        hashlib.sha256(resolved.read_bytes()).hexdigest()
+                        if exists else None
+                    )
+                    new_hash = hashlib.sha256(args.content.encode("utf-8")).hexdigest()
+                    size = len(args.content.encode("utf-8"))
+                    if exists and not args.overwrite:
+                        kind = DecisionKind.DENY
+                        deny_reason = (
+                            f"exists_no_overwrite: {resolved} exists; "
+                            "overwrite requires explicit user approval"
+                        )
+                    else:
+                        preview = WriteFilePreview(
+                            path=str(resolved),
+                            creates_file=not exists,
+                            old_sha256=old_hash,
+                            source_hash=old_hash,
+                            patch_hash=new_hash,
+                            result_hash=new_hash,
+                            size_bytes=size,
+                            overwrite=args.overwrite,
+                        )
+                        self.audit.log(
+                            "write_file_preview",
+                            turn_id=self._turn_id,
+                            call_id=call.call_id,
+                            path=str(resolved),
+                            new_sha256=new_hash[:16],
+                            bytes=size,
+                            created=not exists,
+                        )
+                except WritePathPolicyError as exc:
+                    kind = DecisionKind.DENY
+                    deny_reason = f"{exc.reason_code}: {exc}"
+                except ValidationError as exc:
+                    kind = DecisionKind.DENY
+                    deny_reason = f"invalid write_file arguments: {exc}"
+            elif call.name in {"apply_patch", "apply_symbol_patch", "apply_patch_plan"} and self._preview_service is not None:
                 try:
                     if call.name == "apply_patch":
                         preview = self._preview_service.generate(
@@ -508,6 +564,30 @@ class AgentOrchestrator:
         return "/" in value or "\\" in value or "." in value.rsplit("/", 1)[-1]
 
     def _check_tool_intent(self, call: ToolCall, user_text: str) -> tuple[bool, str]:
+        if call.name == "write_file":
+            # Writing outside the workspace additionally requires an explicit
+            # save-to-SD-card request; inside-workspace writes need save/write intent.
+            raw_path = str(call.arguments.get("path", ""))
+            try:
+                _, external = resolve_write_target(
+                    self.ctx.jail, raw_path,
+                    external_intent=has_external_save_intent(user_text),
+                )
+            except WritePathPolicyError as exc:
+                return False, f"write_file path policy: {exc.reason_code}: {exc}"
+            if external and not has_external_save_intent(user_text):
+                return False, "write_file outside the workspace requires an explicit save-to-SD-card request"
+            WRITE_INTENT_PATTERN = re.compile(
+                r"\b(save|write|create|export|store|report|احفظ|اكتب|أنشئ|تقرير)\b",
+                re.IGNORECASE,
+            )
+            if not (
+                WRITE_INTENT_PATTERN.search(user_text)
+                or self._path_looks_explicit(user_text.strip())
+            ):
+                return False, "write_file requires explicit save/write/report intent"
+            return True, ""
+
         if call.name in WORKSPACE_TOOLS:
             if WORKSPACE_INTENT_PATTERN.search(user_text):
                 return True, ""
@@ -673,13 +753,21 @@ class AgentOrchestrator:
         previous_approval = getattr(self.ctx, "orchestrator_approval_granted", False)
         previous_preview = getattr(self.ctx, "orchestrator_preview", None)
         previous_plan_preview = getattr(self.ctx, "orchestrator_plan_preview", None)
+        previous_wf_preview = getattr(self.ctx, "orchestrator_writefile_preview", None)
+        previous_user_text = getattr(self.ctx, "user_text", "")
         setattr(self.ctx, "orchestrator_approval_granted", ecall.is_ready_to_execute)
         setattr(self.ctx, "orchestrator_preview", ecall.preview)
+        setattr(
+            self.ctx,
+            "orchestrator_writefile_preview",
+            ecall.preview if call.name == "write_file" else None,
+        )
         setattr(
             self.ctx,
             "orchestrator_plan_preview",
             ecall.preview if call.name == "apply_patch_plan" else None,
         )
+        setattr(self.ctx, "user_text", getattr(self, "_user_text", ""))
         try:
             raw = await handler(dict(call.arguments), self.ctx)
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -708,6 +796,8 @@ class AgentOrchestrator:
             setattr(self.ctx, "orchestrator_approval_granted", previous_approval)
             setattr(self.ctx, "orchestrator_preview", previous_preview)
             setattr(self.ctx, "orchestrator_plan_preview", previous_plan_preview)
+            setattr(self.ctx, "orchestrator_writefile_preview", previous_wf_preview)
+            setattr(self.ctx, "user_text", previous_user_text)
 
         self.audit.log(
             "tool_result",
@@ -1112,6 +1202,7 @@ class AgentOrchestrator:
             "",
         )
         self._edit_requested = ModelRouter.looks_like_edit(user_text)
+        self._user_text = user_text
         if self._trace_store is not None:
             model_name = (
                 getattr(self.provider, "current_model", None)
@@ -1663,6 +1754,8 @@ class AgentOrchestrator:
 
     @staticmethod
     def _approval_kind(tool_name: str) -> str:
+        if tool_name == "write_file":
+            return "write_file"
         if tool_name in {"apply_patch", "apply_symbol_patch", "apply_patch_plan", "rollback_patch", "rollback_patch_plan"}:
             return "patch"
         if tool_name in {"web_search", "fetch_page"}:
@@ -1675,6 +1768,22 @@ class AgentOrchestrator:
     def _approval_payload(ecall: EvaluatedToolCall) -> dict:
         call = ecall.call
         args = call.arguments
+        if call.name == "write_file":
+            if ecall.preview is not None:
+                return {
+                    "title": "Approve file write?",
+                    "path": ecall.preview.path,
+                    "creates_file": ecall.preview.creates_file,
+                    "old_sha256": ecall.preview.old_sha256,
+                    "new_sha256": ecall.preview.result_hash,
+                    "bytes": ecall.preview.size_bytes,
+                    "overwrite": ecall.preview.overwrite,
+                }
+            return {
+                "title": "Approve file write?",
+                "path": args.get("path", ""),
+                "overwrite": bool(args.get("overwrite", False)),
+            }
         if call.name == "apply_patch":
             if ecall.preview is not None:
                 return {

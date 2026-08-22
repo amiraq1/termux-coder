@@ -152,6 +152,16 @@ class CliUI(AgentUI):
         elif kind == "git":
             print(logo.paint(f"── {payload.get('title')} ──", logo.TEAL))
             print(payload.get("body", ""))
+        elif kind == "write_file":
+            print(logo.paint(f"── {payload.get('title', 'Approve file write?')} ──", logo.TEAL))
+            print(f"Path: {payload.get('path', '')}")
+            action = "create" if payload.get("creates_file") else "overwrite"
+            print(f"Action: {action}")
+            print(f"Bytes: {payload.get('bytes', 0)}")
+            if payload.get("old_sha256"):
+                print(f"Old sha256: {payload['old_sha256'][:16]}…")
+            if payload.get("new_sha256"):
+                print(f"New sha256: {payload['new_sha256'][:16]}…")
         else:
             logo.ctrl("approval", payload.get("command", ""))
         loop = asyncio.get_running_loop()

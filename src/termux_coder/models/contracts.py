@@ -21,6 +21,29 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ..tools.preview import PatchPreview
 
 
+class WriteFilePreview(BaseModel):
+    """غير قابل للتغيير — لقطة Safe Preview لاستدعاء write_file.
+
+    تُضيف source_hash و patch_hash للتوافق مع منطق
+    ApprovalGrant.is_valid_for، بحيث يمكن للمنصات الموحدة
+    (EvaluatedToolCall.preview) تخزين معاينات write_file والتمييز بينها
+    وبين PatchPreview.
+    - source_hash : تجزئة المحتوى الحالي (None للملفات الجديدة)
+    - patch_hash  : تجزئة المحتوى الجديد (يمثل "التغيير" الكامل)
+    - result_hash : تجزئة المحتوى بعد الكتابة
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    creates_file: bool
+    old_sha256: str | None = None
+    source_hash: str | None = None
+    patch_hash: str | None = None
+    result_hash: str = Field(min_length=64, max_length=64)
+    size_bytes: int = 0
+    overwrite: bool = False
+
+
 # ══════════════════════════════════════════════════════════════
 # 1. كودات الخطأ
 # ══════════════════════════════════════════════════════════════
@@ -234,7 +257,7 @@ class ApprovalGrant(BaseModel):
     preview_result_hash:   str | None = None
 
     def is_valid_for(
-        self, call: ToolCall, preview: PatchPreview | None = None
+        self, call: ToolCall, preview: PatchPreview | WriteFilePreview | None = None
     ) -> tuple[bool, str]:
         """
         تحقق من أن الموافقة صالحة للاستدعاء `call`.
@@ -283,7 +306,7 @@ class EvaluatedToolCall(BaseModel):
     decision:       DecisionKind
     deny_reason:    str | None = None
     preview_error:  str | None = None
-    preview:        PatchPreview | None = None
+    preview:        PatchPreview | WriteFilePreview | None = None
     approval_grant: ApprovalGrant | None = None
 
     @property
